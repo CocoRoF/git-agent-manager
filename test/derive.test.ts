@@ -35,7 +35,7 @@ it("parses GitHub remotes", () => {
 
 it("flags commits no task accounts for", () => {
   const c = (sha: string, message: string, bot = false): CommitRef => ({ sha, message, url: "", author: "a", bot });
-  const p = (number: number, headRef: string, body = ""): Pull => ({ number, title: "", body, headRef, headRepo: "o/r", state: "closed", mergedAt: "x", draft: false, url: "" });
+  const p = (number: number, headRef: string, body = ""): Pull => ({ number, title: "", body, headRef, headRepo: "o/r", state: "closed", mergedAt: "x", draft: false, url: "", createdAt: "" });
   const s = {
     pulls: [p(1, "task/5-x"), p(2, "feature", "Closes #6"), p(3, "feature-b")],
     commits: [
@@ -58,6 +58,8 @@ it("reads repo settings, defaulting to auto", () => {
   assert.equal(parseConfig("approval: required\n").approval, "required");
   assert.equal(parseConfig('# note\napproval: "required"').approval, "required");
   assert.equal(parseConfig("approval: whatever").approval, "auto");
+  assert.equal(parseConfig("").merge, "human");
+  assert.equal(parseConfig("merge: agent").merge, "agent");
 });
 
 it("reads a milestone's agenda", () => {

@@ -47,6 +47,7 @@ export function toPull(p: Json): Pull {
     mergedAt: p.merged_at ?? null,
     draft: !!p.draft,
     url: p.html_url,
+    createdAt: p.created_at,
   };
 }
 

@@ -96,6 +96,7 @@ const TOOLS = [
         evidence: { type: "string", description: "What proves it works: tests run, output, file paths" },
         met: { type: "array", items: { type: "integer" }, description: "Numbers of the done-when criteria you met" },
         no_code: { type: "boolean", description: "The task needed no code changes" },
+        merge: { type: "boolean", description: "Also merge once checks pass, if the repo lets agents merge" },
       },
     },
   },
@@ -133,7 +134,7 @@ async function run(name: string, ctx: Ctx, a: any): Promise<Result> {
     case "gam_update":
       return update(ctx, { issue: a.issue, note: a.note, unblock: a.unblock });
     case "gam_finish":
-      return finish(ctx, { issue: a.issue, evidence: a.evidence, met: a.met, noCode: a.no_code });
+      return finish(ctx, { issue: a.issue, evidence: a.evidence, met: a.met, noCode: a.no_code, merge: a.merge });
     case "gam_block":
       return block(ctx, { issue: a.issue, reason: a.reason });
     default:

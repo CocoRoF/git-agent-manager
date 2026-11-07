@@ -119,13 +119,37 @@ export class FakeTracker implements Tracker {
   }
 
   async createPull(p: { title: string; body: string; head: string }): Promise<Pull> {
-    const pull: Pull = { number: 900 + this.pulls.length, title: p.title, body: p.body, headRef: p.head, headRepo: "o/r", state: "open", mergedAt: null, draft: false, url: `https://x/pull/${this.pulls.length}` };
+    const pull: Pull = { number: 900 + this.pulls.length, title: p.title, body: p.body, headRef: p.head, headRepo: "o/r", state: "open", mergedAt: null, draft: false, url: `https://x/pull/${this.pulls.length}`, createdAt: (this.clock?.() ?? new Date()).toISOString() };
     this.pulls.push(pull);
     return structuredClone(pull);
   }
 
   published: string[] = [];
-  config: Config = { approval: "auto" };
+  config: Config = { approval: "auto", merge: "human" };
+  clock?: () => Date;
+  checks = { pending: [] as string[], failed: [] as string[], total: 0 };
+  mergeRefusal: string | null = null;
+
+  async branchChecks(): Promise<{ pending: string[]; failed: string[]; total: number }> {
+    return this.checks;
+  }
+
+  async mergePull(number: number, branch: string): Promise<string | null> {
+    if (this.mergeRefusal) return this.mergeRefusal;
+    const pull = this.pulls.find((p) => p.number === number)!;
+    pull.state = "closed";
+    pull.mergedAt = new Date().toISOString();
+    this.branches.delete(branch);
+    for (const n of pull.body.match(/#\d+/g) ?? []) {
+      const i = this.issues.find((x) => x.number === Number(n.slice(1)));
+      if (i) {
+        i.state = "closed";
+        i.stateReason = "completed";
+      }
+    }
+    return null;
+  }
+
   files = new Map<string, string[]>();
 
   async readConfig(): Promise<Config> {
