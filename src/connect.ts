@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { GitHubTracker } from "./github.ts";
@@ -41,7 +41,10 @@ export interface AgentResult {
 /** Registers with every agent on this machine at user level, so each repo needs no setup of its own. */
 export function connectAgents(home = homedir()): AgentResult[] {
   const out: AgentResult[] = [];
-  if (has("claude")) out.push({ agent: "Claude Code", result: viaCli("claude", ["mcp", "add", "--scope", "user", "gam", "--", ...COMMAND]) });
+  if (has("claude")) {
+    out.push({ agent: "Claude Code", result: viaCli("claude", ["mcp", "add", "--scope", "user", "gam", "--", ...COMMAND]) });
+    out.push({ agent: "Claude Code hooks", result: installHooks(home) });
+  }
   if (has("codex")) out.push({ agent: "Codex", result: viaCli("codex", ["mcp", "add", "gam", "--", ...COMMAND]) });
   if (existsSync(join(home, ".cursor"))) out.push({ agent: "Cursor", result: viaJson(join(home, ".cursor", "mcp.json")) });
   if (existsSync(join(home, ".gemini"))) out.push({ agent: "Gemini", result: viaJson(join(home, ".gemini", "settings.json")) });
@@ -62,6 +65,52 @@ export function readmeBlock(owner: string, repo: string, isPrivate: boolean): st
   return [START, ...lines, END].join("\n");
 }
 
+/** Adds our hooks to Claude Code's settings. Returns null when there's nothing to change. */
+export function withHooks(settings: any, command: string): any | null {
+  const events: [string, string][] = [["SessionStart", "session-start"], ["Stop", "stop"]];
+  const next = structuredClone(settings);
+  next.hooks ??= {};
+  let changed = false;
+  for (const [event, name] of events) {
+    const list: any[] = (next.hooks[event] ??= []);
+    const mine = list.flatMap((g) => g.hooks ?? []).find((h: any) => /git-agent-manager/.test(h.command ?? "") && h.command.endsWith(`hook ${name}`));
+    const wanted = `${command} hook ${name}`;
+    if (mine?.command === wanted) continue;
+    if (mine) mine.command = wanted;
+    else list.push({ hooks: [{ type: "command", command: wanted, timeout: 15 }] });
+    changed = true;
+  }
+  return changed ? next : null;
+}
+
+/**
+ * Hooks run at every turn, and npx costs seconds each time, so they use a local copy of this
+ * program. Running connect again refreshes it.
+ */
+function installHooks(home: string): "added" | "already" | "failed" {
+  const script = process.argv[1];
+  if (!script) return "failed";
+  try {
+    const dir = process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, "git-agent-manager") : join(home, ".local", "share", "git-agent-manager");
+    mkdirSync(dir, { recursive: true });
+    const copy = join(dir, "cli.js");
+    copyFileSync(script, copy);
+    chmodSync(copy, 0o755);
+    writeFileSync(join(dir, "package.json"), '{"type":"module"}\n');
+
+    const path = join(process.env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings.json");
+    const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+    const next = withHooks(settings, `node "${copy}"`);
+    if (!next) return "already";
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+    return "added";
+  } catch {
+    // Settings we can't parse are the user's. Leave them alone.
+    return "failed";
+  }
+}
+
 /** Replaces the existing block, or puts a new one right after the title. */
 export function withBlock(readme: string, block: string): string {
   const a = readme.indexOf(START);
@@ -70,7 +119,7 @@ export function withBlock(readme: string, block: string): string {
   const lines = readme.split("\n");
   const title = lines.findIndex((l) => /^#\s/.test(l));
   if (title === -1) return `${block}\n\n${readme}`;
-  lines.splice(title + 1, 0, "", block);
+  lines.splice(title + 1, 0, "", block, ...(lines[title + 1]?.trim() ? [""] : []));
   return lines.join("\n");
 }
 
