@@ -1,0 +1,20 @@
+name: Plan
+on:
+  issues:
+    types: [opened, closed, reopened, milestoned, demilestoned, labeled, unlabeled]
+  milestone:
+    types: [created, edited, closed, opened, deleted]
+  pull_request:
+    types: [opened, edited, reopened, closed, synchronize]
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+concurrency:
+  group: gam-${{ github.event.pull_request.number || 'status' }}
+  cancel-in-progress: true
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: CocoRoF/git-agent-manager@v0
