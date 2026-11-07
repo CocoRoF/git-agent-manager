@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { OpError, block, claim, finish, plan, status, update, type Ctx } from "../src/ops.ts";
+import { OpError, agenda, block, claim, finish, plan, status, update, type Ctx } from "../src/ops.ts";
 import { FakeTracker } from "./fake.ts";
 
 function ctx(t: FakeTracker, agent = "a"): Ctx {
@@ -219,5 +219,76 @@ describe("update and block", () => {
     assert.ok(t.issues[0]!.labels.includes("blocked"));
     await update(ctx(t), { issue: 1, note: "got it", unblock: true });
     assert.ok(!t.issues[0]!.labels.includes("blocked"));
+  });
+});
+
+describe("agendas", () => {
+  it("takes a sentence through a plan to closure", async () => {
+    const t = new FakeTracker();
+    await agenda(ctx(t), { text: "경쟁사 분석 보고서를 만들어 줘" });
+    const first = await status(ctx(t));
+    assert.match(first.text, /경쟁사 분석/);
+    assert.match(first.next!, /agenda: 1/);
+
+    await plan(ctx(t), { agenda: 1, milestones: [{ title: "Research", tasks: [{ title: "collect" }] }, { title: "Write", tasks: [{ title: "report" }] }] });
+    assert.match(t.milestones[0]!.description, /^Agenda: #1$/m);
+    assert.match((await status(ctx(t))).text, /#1 .*0\/2 tasks done across 2/);
+
+    await claim(ctx(t), {});
+    await finish(ctx(t), { issue: 2, evidence: "x", noCode: true });
+    await plan(ctx(t), { closeMilestones: [{ number: 1, evidence: "done" }] });
+    assert.equal(t.issues[0]!.state, "open");
+    await claim(ctx(t), {});
+    await finish(ctx(t), { issue: 3, evidence: "x", noCode: true });
+    const r = await plan(ctx(t), { closeMilestones: [{ number: 2, evidence: "done" }] });
+    assert.match(r.text, /closed agenda #1/);
+    assert.equal(t.issues[0]!.state, "closed");
+  });
+
+  it("does not offer the agenda issue itself as a task", async () => {
+    const t = new FakeTracker();
+    await agenda(ctx(t), { text: "goal" });
+    await rejects(claim(ctx(t), { issue: 1 }), /not a task/);
+    await rejects(claim(ctx(t), {}), /Nothing/);
+  });
+
+  it("won't plan from an outsider's agenda", async () => {
+    const t = new FakeTracker();
+    t.seed({ title: "x", labels: ["agenda"], trusted: false });
+    assert.doesNotMatch((await status(ctx(t))).text, /waiting for a plan/);
+    await rejects(plan(ctx(t), { agenda: 1, milestones: [{ title: "M" }] }), /write access/);
+  });
+});
+
+describe("teams", () => {
+  it("holds an agent's tasks for approval when the repo requires it", async () => {
+    const t = new FakeTracker();
+    t.config = { approval: "required" };
+    await plan(ctx(t), { proposed: false, milestones: [{ title: "M", tasks: [{ title: "x" }] }] });
+    assert.ok(t.issues[0]!.labels.includes("proposed"));
+    await rejects(claim(ctx(t), {}), /Nothing/);
+  });
+
+  it("gives each role its own tasks, and shared tasks to anyone", async () => {
+    const t = new FakeTracker();
+    await plan(ctx(t), { milestones: [{ title: "M", tasks: [{ title: "ui", role: "frontend" }, { title: "db", role: "backend" }, { title: "any" }] }] });
+    const a = await claim({ ...ctx(t, "a"), role: "backend" }, {});
+    assert.equal((a.data as { issue: number }).issue, 2);
+    const b = await claim({ ...ctx(t, "b"), role: "backend" }, {});
+    assert.equal((b.data as { issue: number }).issue, 3);
+    await rejects(claim({ ...ctx(t, "c"), role: "backend" }, {}), /Nothing/);
+  });
+
+  it("warns about other work and likely conflicts", async () => {
+    const t = new FakeTracker();
+    await plan(ctx(t), { milestones: [{ title: "M", tasks: [{ title: "a" }, { title: "b" }] }] });
+    await claim(ctx(t, "x"), { issue: 1 });
+    t.files.set("task/1-a", ["src/app.ts"]);
+    const second = await claim(ctx(t, "y"), { issue: 2 });
+    assert.match(second.text, /others are changing: task\/1-a: src\/app\.ts/);
+    t.branches.set("task/2-b", { ahead: 1, lastCommitAt: null });
+    t.files.set("task/2-b", ["src/app.ts", "README.md"]);
+    const done = await finish(ctx(t, "y"), { issue: 2, evidence: "x" });
+    assert.match(done.text, /merge conflicts: task\/1-a also changed src\/app\.ts/);
   });
 });

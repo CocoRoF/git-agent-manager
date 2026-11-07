@@ -1,8 +1,9 @@
-import type { CommitRef, Criterion, Issue, Milestone, Pull, Snapshot, Task, TaskState } from "./model.ts";
+import type { CommitRef, Config, Criterion, Issue, Milestone, Pull, Snapshot, Task, TaskState } from "./model.ts";
 
 export const LABEL_BLOCKED = "blocked";
 export const LABEL_PROPOSED = "proposed";
 export const LABEL_UNPLANNED = "unplanned";
+export const LABEL_AGENDA = "agenda";
 export const ROLE_PREFIX = "role:";
 
 const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b/gi;
@@ -173,4 +174,20 @@ export function auditCommits(s: Snapshot): Audit {
     return pull ? pullTask(pull) === null : false;
   });
   return { checked: commits.length, offPlan };
+}
+
+const AGENDA_LINE = /^Agenda: #(\d+)\s*$/m;
+
+export function milestoneAgenda(m: Pick<Milestone, "description">): number | null {
+  const found = AGENDA_LINE.exec(m.description);
+  return found ? Number(found[1]) : null;
+}
+
+export function agendaMilestones(milestones: Milestone[], agenda: number): Milestone[] {
+  return milestones.filter((m) => milestoneAgenda(m) === agenda);
+}
+
+export function parseConfig(text: string): Config {
+  const approval = /^approval:\s*["']?(\w+)/m.exec(text)?.[1];
+  return { approval: approval === "required" ? "required" : "auto" };
 }

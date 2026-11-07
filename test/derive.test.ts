@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { auditCommits, branchIssue, branchName, closingIssues, parseCriteria, tickCriteria } from "../src/derive.ts";
+import { auditCommits, branchIssue, branchName, closingIssues, milestoneAgenda, parseConfig, parseCriteria, tickCriteria } from "../src/derive.ts";
 import type { CommitRef, Pull, Snapshot } from "../src/model.ts";
 import { parseRemote } from "../src/local.ts";
 
@@ -51,4 +51,16 @@ it("flags commits no task accounts for", () => {
   const a = auditCommits(s);
   assert.equal(a.checked, 6);
   assert.deepEqual(a.offPlan.map((x) => x.sha), ["c", "d"]);
+});
+
+it("reads repo settings, defaulting to auto", () => {
+  assert.equal(parseConfig("").approval, "auto");
+  assert.equal(parseConfig("approval: required\n").approval, "required");
+  assert.equal(parseConfig('# note\napproval: "required"').approval, "required");
+  assert.equal(parseConfig("approval: whatever").approval, "auto");
+});
+
+it("reads a milestone's agenda", () => {
+  assert.equal(milestoneAgenda({ description: "Text\n\nAgenda: #12" }), 12);
+  assert.equal(milestoneAgenda({ description: "see Agenda: #12 above" }), null);
 });

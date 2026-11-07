@@ -1,4 +1,4 @@
-import type { Comment, Issue, Milestone, NewIssue, Pull, Snapshot, Tracker } from "../src/model.ts";
+import type { Comment, Config, Issue, Milestone, NewIssue, Pull, Snapshot, Tracker } from "../src/model.ts";
 
 /** An in-memory tracker that follows the GitHub rules the code relies on. */
 export class FakeTracker implements Tracker {
@@ -26,6 +26,7 @@ export class FakeTracker implements Tracker {
       branches: [...this.branches.keys()],
       pulls: this.pulls,
       commits: [],
+      agendas: this.issues.filter((i) => i.labels.includes("agenda")),
     });
   }
 
@@ -124,6 +125,16 @@ export class FakeTracker implements Tracker {
   }
 
   published: string[] = [];
+  config: Config = { approval: "auto" };
+  files = new Map<string, string[]>();
+
+  async readConfig(): Promise<Config> {
+    return this.config;
+  }
+
+  async branchFiles(name: string): Promise<string[]> {
+    return this.files.get(name) ?? [];
+  }
 
   async publishStatus(svg: string): Promise<void> {
     this.published.push(svg);

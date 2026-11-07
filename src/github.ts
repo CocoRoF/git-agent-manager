@@ -1,4 +1,5 @@
-import type { Comment, Issue, Milestone, NewIssue, Pull, Snapshot, Tracker } from "./model.ts";
+import type { Comment, Config, Issue, Milestone, NewIssue, Pull, Snapshot, Tracker } from "./model.ts";
+import { parseConfig } from "./derive.ts";
 import { TRUSTED, loadSnapshot, toIssue, toMilestone, toPull } from "./snapshot.ts";
 
 const API = "https://api.github.com";
@@ -206,6 +207,17 @@ export class GitHubTracker implements Tracker {
     const commit = await this.call("POST", `${this.base}/git/commits`, { message: "Update status", tree: tree.sha, parents: [] });
     const { status } = await this.request("PATCH", `${this.base}/git/refs/gam/status`, { sha: commit.sha, force: true });
     if (status >= 400) await this.call("POST", `${this.base}/git/refs`, { ref: "refs/gam/status", sha: commit.sha });
+  }
+
+  async readConfig(): Promise<Config> {
+    return parseConfig((await this.readFile(".github/gam.yml"))?.text ?? "");
+  }
+
+  async branchFiles(name: string): Promise<string[]> {
+    const branch = this.defaultBranch ?? (await this.call("GET", this.base)).default_branch;
+    const { status, json } = await this.request("GET", `${this.base}/compare/${encodeURIComponent(branch)}...${encodeURIComponent(name)}?per_page=1`);
+    if (status >= 400) return [];
+    return (json.files ?? []).map((f: Json) => String(f.filename));
   }
 
   async readFile(path: string): Promise<{ text: string; sha: string } | null> {
