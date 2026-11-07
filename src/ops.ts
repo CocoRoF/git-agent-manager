@@ -170,7 +170,7 @@ export async function status(ctx: Ctx): Promise<Result> {
 
   const claims = await activeClaims(ctx, tasks);
   const { done, total } = overallProgress(s.milestones);
-  const lines = [`${repo}: ${done}/${total} tasks done across ${s.milestones.length} milestone(s)`, `dashboard: ${dashboardUrl(s)}`];
+  const lines = [`${repo}: ${done}/${total} tasks done across ${s.milestones.length} milestone(s)`, `dashboard: ${dashboardUrl(s)}${s.private ? " (private repo: needs a token there, or run `gam dashboard` for a local file)" : ""}`];
   const current = currentMilestone(s);
   const finished = open.filter(isFinished);
 

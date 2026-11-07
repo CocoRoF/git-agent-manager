@@ -1,7 +1,7 @@
 import type { Comment, Issue, Milestone, NewIssue, Pull, Snapshot, Tracker } from "./model.ts";
+import { TRUSTED, loadSnapshot, toIssue, toMilestone, toPull } from "./snapshot.ts";
 
 const API = "https://api.github.com";
-const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 const RETRIES = 4;
 const MAX_WAIT_MS = 60_000;
 
@@ -23,51 +23,6 @@ export class GitHubError extends Error {
 }
 
 type Json = any;
-
-function toMilestone(m: Json): Milestone {
-  return {
-    number: m.number,
-    title: m.title,
-    description: m.description ?? "",
-    state: m.state,
-    dueOn: m.due_on,
-    open: m.open_issues,
-    closed: m.closed_issues,
-    url: m.html_url,
-  };
-}
-
-function toIssue(i: Json): Issue {
-  return {
-    number: i.number,
-    id: i.id,
-    title: i.title,
-    body: i.body ?? "",
-    state: i.state,
-    stateReason: i.state_reason ?? null,
-    labels: (i.labels ?? []).map((l: Json) => (typeof l === "string" ? l : l.name)),
-    milestone: i.milestone?.number ?? null,
-    author: i.user?.login ?? "ghost",
-    trusted: TRUSTED.has(i.author_association),
-    blockedBy: i.issue_dependencies_summary?.blocked_by ?? 0,
-    url: i.html_url,
-    updatedAt: i.updated_at,
-  };
-}
-
-function toPull(p: Json): Pull {
-  return {
-    number: p.number,
-    title: p.title,
-    body: p.body ?? "",
-    headRef: p.head?.ref ?? "",
-    headRepo: p.head?.repo?.full_name ?? null,
-    state: p.state,
-    mergedAt: p.merged_at ?? null,
-    draft: !!p.draft,
-    url: p.html_url,
-  };
-}
 
 function toComment(c: Json): Comment {
   return {
@@ -140,34 +95,9 @@ export class GitHubTracker implements Tracker {
   }
 
   async snapshot(): Promise<Snapshot> {
-    const [repo, milestones, unplanned, refs, openPulls, recentPulls] = await Promise.all([
-      this.call("GET", this.base),
-      this.paged(`${this.base}/milestones?state=all`),
-      this.paged(`${this.base}/issues?state=all&labels=unplanned`, 100),
-      this.paged(`${this.base}/git/matching-refs/heads/task/`),
-      this.paged(`${this.base}/pulls?state=open`),
-      // Enough to prove how recently closed tasks were closed. Older ones show as closed without a PR.
-      this.call("GET", `${this.base}/pulls?state=closed&sort=updated&direction=desc&per_page=100`),
-    ]);
-    this.defaultBranch = repo.default_branch;
-
-    const open = milestones.filter((m: Json) => m.state === "open");
-    const issueLists = await Promise.all(open.map((m: Json) => this.paged(`${this.base}/issues?state=all&milestone=${m.number}`)));
-    const byNumber = new Map<number, Issue>();
-    for (const raw of [...issueLists.flat(), ...unplanned]) {
-      if (!raw.pull_request) byNumber.set(raw.number, toIssue(raw));
-    }
-
-    return {
-      owner: this.owner,
-      repo: this.repo,
-      defaultBranch: repo.default_branch,
-      private: repo.private,
-      milestones: milestones.map(toMilestone),
-      issues: [...byNumber.values()],
-      branches: refs.map((r: Json) => String(r.ref).replace("refs/heads/", "")),
-      pulls: [...openPulls, ...recentPulls].map(toPull),
-    };
+    const snapshot = await loadSnapshot(this.owner, this.repo, (path) => this.call("GET", path), (path, limit) => this.paged(path, limit));
+    this.defaultBranch = snapshot.defaultBranch;
+    return snapshot;
   }
 
   async getIssue(number: number): Promise<Issue> {

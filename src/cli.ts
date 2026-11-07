@@ -1,13 +1,18 @@
+import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { connectAgents, proposeRepoFiles } from "./connect.ts";
+import { dashboardHtml } from "./dashboard.ts";
 import { GitHubTracker } from "./github.ts";
 import { currentBranch, detectRepo, findToken } from "./local.ts";
 import { parseSlug, refreshStatus, serveMcp, toPlan } from "./mcp.ts";
 import { OpError, VIEWER, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
 
 declare const __VERSION__: string;
+declare const __VIEWER_HTML__: string;
 const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
 
 const HELP = `git-agent-manager ${VERSION}
@@ -20,6 +25,7 @@ const HELP = `git-agent-manager ${VERSION}
   gam update [issue] <note> [--unblock]         add a line of progress
   gam finish [issue] --evidence text [--met 1,2] [--no-code]
   gam block [issue] <reason>
+  gam dashboard [--out file.html]               write the dashboard to a file and open it
   gam mcp                                       run the MCP server
 
   --repo owner/name   use this repo instead of the current folder's origin
@@ -72,12 +78,25 @@ async function connect(values: { repo?: string; yes?: boolean }): Promise<void> 
   }
 }
 
+function openFile(path: string): void {
+  const [cmd, args] = process.platform === "darwin" ? ["open", [path]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", path]] : ["xdg-open", [path]];
+  spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+}
+
+async function dashboard(t: GitHubTracker, out?: string): Promise<void> {
+  const path = out ?? join(tmpdir(), `gam-${t.owner}-${t.repo}.html`);
+  writeFileSync(path, dashboardHtml(__VIEWER_HTML__, await t.snapshot(), new Date()), { mode: 0o600 });
+  console.log(path);
+  if (process.stdout.isTTY) openFile(path);
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
       repo: { type: "string" },
       json: { type: "boolean" },
+      out: { type: "string" },
       new: { type: "string" },
       takeover: { type: "boolean" },
       role: { type: "string" },
@@ -97,6 +116,7 @@ async function main(): Promise<void> {
   if (!command || command === "connect") return connect(values);
 
   const t = tracker(values.repo);
+  if (command === "dashboard") return dashboard(t, values.out);
   const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", currentBranch: currentBranch() };
   const number = /^\d+$/.test(rest[0] ?? "") ? Number(rest.shift()) : undefined;
   let result: Result;
