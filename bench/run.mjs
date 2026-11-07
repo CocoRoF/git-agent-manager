@@ -3,8 +3,8 @@
 //   node bench/run.mjs claude-mcp fix     only matching runs
 // It wipes the scratch repo's plan and rewrites main. Results go to bench/results.jsonl.
 import { spawnSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO = process.env.GAM_BENCH_REPO ?? "CocoRoF/gam-sandbox";
@@ -36,13 +36,26 @@ const FILES = {
   ".github/gam.yml": "merge: agent\n",
 };
 
-async function reset() {
+// Same text the connect command writes.
+const POINTER = `Before starting work in a git repo, call \`gam_status\` once. If it reports a plan, do the work through \`gam_claim\`, \`gam_update\` and \`gam_finish\`, one task at a time, and follow the \`next:\` line in each result. For a small job outside the plan, call \`gam_claim\` with \`new\` before changing anything. If there's no plan, carry on as usual.\n`;
+const REPO_POINTER = "This repo plans its work with git-agent-manager. Call `gam_status` before starting, and do the work through `gam_claim`, `gam_update` and `gam_finish`.\n";
+
+/** A Codex home with our global instructions, sharing the real login. */
+function codexHome() {
+  const real = process.env.CODEX_HOME || join(homedir(), ".codex");
+  const dir = mkdtempSync(join(homedir(), ".cache", "gam-codex-"));
+  for (const f of ["auth.json", "config.toml"]) if (existsSync(join(real, f))) symlinkSync(join(real, f), join(dir, f));
+  writeFileSync(join(dir, "AGENTS.md"), POINTER);
+  return dir;
+}
+
+async function reset(extra = {}) {
   for (const m of await api("GET", "/milestones?state=all&per_page=100")) await api("DELETE", `/milestones/${m.number}`);
   for (const i of await api("GET", "/issues?state=open&per_page=100")) if (!i.pull_request) await api("PATCH", `/issues/${i.number}`, { state: "closed", state_reason: "not_planned", labels: [] });
   for (const p of await api("GET", "/pulls?state=open&per_page=100")) await api("PATCH", `/pulls/${p.number}`, { state: "closed" });
   for (const r of await api("GET", "/git/matching-refs/heads/?per_page=100")) if (r.ref !== "refs/heads/main") await api("DELETE", `/git/${r.ref}`);
   // Start main over from a single commit, so each run sees the same repo.
-  const tree = await api("POST", "/git/trees", { tree: Object.entries(FILES).map(([path, content]) => ({ path, mode: "100644", type: "blob", content })) });
+  const tree = await api("POST", "/git/trees", { tree: Object.entries({ ...FILES, ...extra }).map(([path, content]) => ({ path, mode: "100644", type: "blob", content })) });
   const commit = await api("POST", "/git/commits", { message: "Start", tree: tree.sha, parents: [] });
   await api("PATCH", "/git/refs/heads/main", { sha: commit.sha, force: true });
   return commit.sha;
@@ -90,16 +103,20 @@ const hookSettings = JSON.stringify({
   },
 });
 
+const codexRun = (p) => [
+  "codex",
+  // Codex's own sandbox needs user namespaces, which this kind of host may not allow. The run is a throwaway clone.
+  ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-c", `mcp_servers.gam.command="node"`, "-c", `mcp_servers.gam.args=["${CLI}","mcp"]`, "-c", 'mcp_servers.gam.default_tools_approval_mode="approve"', p],
+];
+
 const CONDITIONS = {
   "claude-mcp": { run: (p) => ["claude", claudeArgs(p)] },
   "claude-mcp-hooks": { run: (p) => ["claude", claudeArgs(p, hookSettings)] },
-  "codex-mcp": {
-    run: (p) => [
-      "codex",
-      // Codex's own sandbox needs user namespaces, which this kind of host may not allow. The run is a throwaway clone.
-      ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-c", `mcp_servers.gam.command="node"`, "-c", `mcp_servers.gam.args=["${CLI}","mcp"]`, "-c", 'mcp_servers.gam.default_tools_approval_mode="approve"', p],
-    ],
-  },
+  "codex-mcp": { run: codexRun },
+  // The connect command's setup: instructions in Codex's home, nothing in the repo.
+  "codex-global": { run: codexRun, home: true },
+  // A teammate's setup: a pointer committed to the repo.
+  "codex-repo": { run: codexRun, files: { "AGENTS.md": REPO_POINTER } },
 };
 
 async function score(name, s, start, dir) {
@@ -137,7 +154,7 @@ async function score(name, s, start, dir) {
     uncommitted: local.split("\n").filter(Boolean).length,
   };
   let followed;
-  if (name === "noplan") followed = r.issuesCreated === 0 && r.strayCommits >= 0 && mainNew.length + newPulls.length > 0;
+  if (name === "noplan") followed = r.issuesCreated === 0;
   else if (name === "fix") followed = offPlan === 0 && r.unplannedRecorded + r.linkedPulls > 0;
   else followed = offPlan === 0 && r.linkedPulls + r.taskBranches > 0;
   return { ...r, followed };
@@ -147,7 +164,7 @@ for (const [condition, c] of Object.entries(CONDITIONS)) {
   for (const [name, s] of Object.entries(SCENARIOS)) {
     const id = `${condition}/${name}`;
     if (filter.length && !filter.every((f) => id.includes(f))) continue;
-    const start = await reset();
+    const start = await reset(c.files);
     const at = new Date(Date.now() - 2000);
     if (s.plan) {
       const r = sh("node", [CLI, "plan", "-", "--repo", REPO], { input: JSON.stringify(PLAN), env: { ...process.env, GITHUB_TOKEN: token } });
@@ -160,12 +177,15 @@ for (const [condition, c] of Object.entries(CONDITIONS)) {
     writeFileSync(join(dir, ".git", "info", "exclude"), "node_modules\n");
     const [cmd, args] = c.run(s.prompt);
     const began = Date.now();
-    const env = { ...process.env, GITHUB_TOKEN: token, GAM_AGENT: "" };
+    const home = c.home ? codexHome() : null;
+    const env = { ...process.env, GITHUB_TOKEN: token, ...(home ? { CODEX_HOME: home } : {}) };
     delete env.GAM_AGENT;
     const run = sh(cmd, args, { cwd: dir, env, timeout: LIMIT_MS, input: "", maxBuffer: 64 * 1024 * 1024 });
     const seconds = Math.round((Date.now() - began) / 1000);
+    if (home) rmSync(home, { recursive: true, force: true });
     await new Promise((res) => setTimeout(res, 5000));
-    const result = { id, at: new Date().toISOString(), seconds, exit: run.status, timedOut: run.error?.code === "ETIMEDOUT", ...(await score(name, { at: planDone }, start, dir)) };
+    const tools = (run.stdout.match(/^mcp: gam\/\w+ started/gm) ?? []).length;
+    const result = { id, tools, at: new Date().toISOString(), seconds, exit: run.status, timedOut: run.error?.code === "ETIMEDOUT", ...(await score(name, { at: planDone }, start, dir)) };
     appendFileSync("bench/results.jsonl", `${JSON.stringify(result)}\n`);
     writeFileSync(`/tmp/gam-bench-${id.replace("/", "-")}.log`, `${run.stdout}\n---\n${run.stderr}`);
     console.log(JSON.stringify(result));

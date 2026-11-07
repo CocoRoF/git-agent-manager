@@ -33,6 +33,32 @@ function viaJson(path: string): "added" | "already" | "failed" {
   }
 }
 
+/** For agents that read instruction files but not MCP's instructions. It applies to every repo, so it has to be safe with no plan. */
+export const GLOBAL_POINTER = `${START}
+Before starting work in a git repo, call \`gam_status\` once. If it reports a plan, do the work through \`gam_claim\`, \`gam_update\` and \`gam_finish\`, one task at a time, and follow the \`next:\` line in each result. For a small job outside the plan, call \`gam_claim\` with \`new\` before changing anything. If there's no plan, carry on as usual.
+${END}`;
+
+/** Replaces our block in an instruction file, or adds it at the end. */
+export function withPointer(text: string, pointer: string): string {
+  const a = text.indexOf(START);
+  const b = text.indexOf(END);
+  if (a !== -1 && b > a) return text.slice(0, a) + pointer + text.slice(b + END.length);
+  return text.trim() ? `${text.trimEnd()}\n\n${pointer}\n` : `${pointer}\n`;
+}
+
+function viaInstructions(path: string): "added" | "already" | "failed" {
+  try {
+    const cur = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const next = withPointer(cur, GLOBAL_POINTER);
+    if (next === cur) return "already";
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, next);
+    return "added";
+  } catch {
+    return "failed";
+  }
+}
+
 export interface AgentResult {
   agent: string;
   result: "added" | "already" | "failed";
@@ -45,9 +71,16 @@ export function connectAgents(home = homedir()): AgentResult[] {
     out.push({ agent: "Claude Code", result: viaCli("claude", ["mcp", "add", "--scope", "user", "gam", "--", ...COMMAND]) });
     out.push({ agent: "Claude Code hooks", result: installHooks(home) });
   }
-  if (has("codex")) out.push({ agent: "Codex", result: viaCli("codex", ["mcp", "add", "gam", "--", ...COMMAND]) });
+  if (has("codex")) {
+    out.push({ agent: "Codex", result: viaCli("codex", ["mcp", "add", "gam", "--", ...COMMAND]) });
+    // Measured: without this, Codex almost never calls the tools. See docs/BENCHMARK.md.
+    out.push({ agent: "Codex instructions", result: viaInstructions(join(process.env.CODEX_HOME || join(home, ".codex"), "AGENTS.md")) });
+  }
   if (existsSync(join(home, ".cursor"))) out.push({ agent: "Cursor", result: viaJson(join(home, ".cursor", "mcp.json")) });
-  if (existsSync(join(home, ".gemini"))) out.push({ agent: "Gemini", result: viaJson(join(home, ".gemini", "settings.json")) });
+  if (existsSync(join(home, ".gemini"))) {
+    out.push({ agent: "Gemini", result: viaJson(join(home, ".gemini", "settings.json")) });
+    out.push({ agent: "Gemini instructions", result: viaInstructions(join(home, ".gemini", "GEMINI.md")) });
+  }
   return out;
 }
 

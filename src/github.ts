@@ -212,7 +212,9 @@ export class GitHubTracker implements Tracker {
   }
 
   async mergePull(number: number, branch: string): Promise<string | null> {
-    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash" });
+    const pull = await this.call("GET", `${this.base}/pulls/${number}`);
+    // The PR number in the title is how the audit ties this commit back to a task.
+    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash", commit_title: `${pull.title} (#${number})` });
     if (status >= 400) return json?.message ?? `GitHub said ${status}`;
     await this.deleteBranch(branch);
     return null;

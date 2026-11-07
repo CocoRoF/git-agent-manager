@@ -32,6 +32,7 @@ const HELP = `git-agent-manager ${VERSION}
   gam mcp                                       run the MCP server
 
   --repo owner/name   use this repo instead of the current folder's origin
+  --agents-md         connect: also add an AGENTS.md pointer, for teammates and cloud agents
   --json              print machine-readable output
   GAM_AGENT           the name this agent signs its work with
   GAM_ROLE            prefer tasks with this role:* label`;
@@ -57,7 +58,7 @@ async function ask(question: string): Promise<boolean> {
   return answer === "" || answer === "y" || answer === "yes";
 }
 
-async function connect(values: { repo?: string; yes?: boolean }): Promise<void> {
+async function connect(values: { repo?: string; yes?: boolean; "agents-md"?: boolean }): Promise<void> {
   const agents = connectAgents();
   if (!agents.length) console.log("No agents found on this machine. Add this MCP server to yours:\n  npx -y github:CocoRoF/git-agent-manager mcp");
   for (const a of agents) {
@@ -77,7 +78,7 @@ async function connect(values: { repo?: string; yes?: boolean }): Promise<void> 
   console.log(`\n${found.owner}/${found.repo}: ${s.milestones.length ? `${s.milestones.length} milestone(s) found, the plan is live.` : "no plan yet. Ask your agent to make one."}`);
   console.log(`Dashboard: ${VIEWER}#/${found.owner}/${found.repo}`);
   if (values.yes || (await ask("\nAdd a progress card to the README, as a pull request?"))) {
-    const url = await proposeRepoFiles(t, s.private, { readme: true, workflow: true, pointer: false });
+    const url = await proposeRepoFiles(t, s.private, { readme: true, workflow: true, pointer: !!values["agents-md"] });
     console.log(url ? `✓ ${url}` : "✓ The README already has it.");
   }
 }
@@ -110,6 +111,7 @@ async function main(): Promise<void> {
       "no-code": { type: "boolean" },
       merge: { type: "boolean" },
       yes: { type: "boolean", short: "y" },
+      "agents-md": { type: "boolean" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },

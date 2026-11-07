@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { END, START, readmeBlock, withBlock, withHooks } from "../src/connect.ts";
+import { END, GLOBAL_POINTER, START, readmeBlock, withBlock, withHooks, withPointer } from "../src/connect.ts";
 import { workOutsideTask } from "../src/hooks.ts";
 
 const block = readmeBlock("o", "r", false);
@@ -49,4 +49,12 @@ it("only nudges about work with no task behind it", () => {
   assert.equal(workOutsideTask("main", "", ""), false);
   assert.equal(workOutsideTask("task/4-x", " M a.ts", "2"), false);
   assert.equal(workOutsideTask(null, " M a.ts", ""), true);
+});
+
+it("keeps the user's own instructions around its pointer", () => {
+  assert.equal(withPointer("", GLOBAL_POINTER), `${GLOBAL_POINTER}\n`);
+  const once = withPointer("# Mine\nBe terse.\n", GLOBAL_POINTER);
+  assert.match(once, /^# Mine\nBe terse\.\n\n<!-- gam:start -->/);
+  assert.equal(withPointer(once, GLOBAL_POINTER), once);
+  assert.match(withPointer(`${START}\nold\n${END}\nAfter`, GLOBAL_POINTER), /gam_status[\s\S]*After/);
 });
