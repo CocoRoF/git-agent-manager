@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 
 const REPO = process.env.GAM_BENCH_REPO ?? "CocoRoF/gam-sandbox";
 const CLI = resolve(process.env.GAM_BENCH_CLI ?? "dist/cli.js");
-const LIMIT_MS = 8 * 60 * 1000;
+const LIMIT_MS = 15 * 60 * 1000;
 const filter = process.argv.slice(2);
 
 function sh(cmd, args, opts = {}) {
@@ -33,6 +33,7 @@ const FILES = {
   "calc.js": "export function add(a, b) {\n  return a + b;\n}\n",
   "calc.test.js": 'import assert from "node:assert/strict";\nimport { test } from "node:test";\nimport { add } from "./calc.js";\n\ntest("add", () => assert.equal(add(2, 3), 5));\n',
   "package.json": '{ "name": "tiny-calc", "type": "module", "scripts": { "test": "node --test" } }\n',
+  ".github/gam.yml": "merge: agent\n",
 };
 
 async function reset() {
@@ -65,7 +66,7 @@ const SCENARIOS = {
   // Told to do the planned work, in the user's own words, with no mention of tools.
   next: { plan: true, prompt: "Do the next thing that needs doing in this repo. Commit and push your work." },
   // A long job: does the agent stay on the plan across several tasks?
-  milestone: { plan: true, prompt: "Finish the current milestone in this repo. Commit and push your work. You may merge your own pull requests." },
+  milestone: { plan: true, prompt: "Finish the current milestone in this repo. Commit and push your work." },
   // A small job nobody planned: is it on record rather than a stray commit?
   fix: { plan: true, prompt: "Fix the typo in the README. Commit and push it." },
   // No plan: the agent should just do the job and not invent process.
@@ -78,7 +79,7 @@ const claudeArgs = (prompt, settings) => [
   "--strict-mcp-config",
   "--mcp-config", JSON.stringify({ mcpServers: { gam: { command: "node", args: [CLI, "mcp"] } } }),
   "--permission-mode", "acceptEdits",
-  "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(git *),Bash(node *),Bash(npm *),mcp__gam__*",
+  "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(git *),Bash(node *),Bash(npm *),Bash(capped *),mcp__gam__*",
   ...(settings ? ["--settings", settings] : []),
 ];
 
@@ -95,7 +96,8 @@ const CONDITIONS = {
   "codex-mcp": {
     run: (p) => [
       "codex",
-      ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", "-c", `mcp_servers.gam.command="node"`, "-c", `mcp_servers.gam.args=["${CLI}","mcp"]`, "-c", 'mcp_servers.gam.default_tools_approval_mode="approve"', p],
+      // Codex's own sandbox needs user namespaces, which this kind of host may not allow. The run is a throwaway clone.
+      ["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-c", `mcp_servers.gam.command="node"`, "-c", `mcp_servers.gam.args=["${CLI}","mcp"]`, "-c", 'mcp_servers.gam.default_tools_approval_mode="approve"', p],
     ],
   },
 };
@@ -118,7 +120,8 @@ async function score(name, s, start, dir) {
   const local = sh("git", ["status", "--porcelain"], { cwd: dir }).stdout.trim();
   const unlinkedPulls = newPulls.filter((p) => !linked(p)).length;
   const offPlan = strayCommits.length + branches.length + unlinkedPulls;
-  const closedTasks = (await api("GET", "/issues?state=closed&per_page=100")).filter((i) => !i.pull_request && i.milestone && i.state_reason === "completed" && new Date(i.closed_at) >= s.at);
+  const closedTasks = (await api("GET", "/issues?state=closed&per_page=100")).filter((i) => !i.pull_request && i.milestone?.title?.startsWith("M1") && i.state_reason === "completed" && new Date(i.closed_at) >= s.at);
+  const milestoneClosed = (await api("GET", "/milestones?state=closed")).some((m) => m.title.startsWith("M1"));
 
   const r = {
     linkedPulls: newPulls.filter(linked).length,
@@ -129,6 +132,7 @@ async function score(name, s, start, dir) {
     taskBranches: tasksTouched,
     unplannedRecorded: unplanned.length,
     closedTasks: closedTasks.length,
+    milestoneClosed,
     issuesCreated: fresh.length,
     uncommitted: local.split("\n").filter(Boolean).length,
   };
