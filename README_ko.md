@@ -27,7 +27,8 @@ npx github:CocoRoF/git-agent-manager
 
 1. Claude Code, Codex, Cursor, Gemini 가 있으면 연결합니다. 기계 단위라서 이후 모든 저장소에서 동작합니다.
 2. 이미 있는 GitHub 로그인을 씁니다 (`GITHUB_TOKEN`, `gh`, git 자격 증명).
-3. README 진행도 카드와 카드를 최신으로 유지하는 작은 워크플로를 PR 로 제안합니다. 거절해도 됩니다.
+3. Codex 와 Gemini 의 전역 안내 파일에 짧은 블록을, Claude Code 에 작은 훅 둘을 추가합니다. 저장소는 건드리지 않고, 그 파일에 쓰신 내용도 그대로 둡니다.
+4. README 진행도 카드와 카드를 최신으로 유지하는 작은 워크플로를 PR 로 제안합니다. 거절해도 됩니다.
 
 그다음에는 에이전트에게 원하는 것을 말하면 됩니다.
 

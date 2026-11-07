@@ -49,17 +49,25 @@ export class GitHubTracker implements Tracker {
 
   private async request(method: string, path: string, body?: unknown): Promise<{ status: number; json: Json; headers: Headers }> {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(path.startsWith("http") ? path : `${API}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "git-agent-manager",
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      let res: Response;
+      try {
+        res = await fetch(path.startsWith("http") ? path : `${API}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "git-agent-manager",
+            ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (e) {
+        // A dropped connection. Reads and these writes are safe to repeat: GitHub refuses a duplicate branch, and a task's title guards a retried plan.
+        if (attempt >= RETRIES) throw e;
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        continue;
+      }
       const text = await res.text();
       let json: Json = null;
       try {
@@ -212,7 +220,9 @@ export class GitHubTracker implements Tracker {
   }
 
   async mergePull(number: number, branch: string): Promise<string | null> {
-    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash" });
+    const pull = await this.call("GET", `${this.base}/pulls/${number}`);
+    // The PR number in the title is how the audit ties this commit back to a task.
+    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash", commit_title: `${pull.title} (#${number})` });
     if (status >= 400) return json?.message ?? `GitHub said ${status}`;
     await this.deleteBranch(branch);
     return null;
