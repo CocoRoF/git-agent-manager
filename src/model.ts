@@ -62,6 +62,13 @@ export interface Snapshot {
   pulls: Pull[];
   /** Default-branch commits since the plan began, newest first. */
   commits: CommitRef[];
+  /** Goals a person gave, as issues labelled agenda. */
+  agendas: Issue[];
+}
+
+export interface Config {
+  /** With required, an agent's new tasks wait for a person's approval, whatever the agent asks for. */
+  approval: "auto" | "required";
 }
 
 export interface Task {
@@ -116,4 +123,7 @@ export interface Tracker {
   createPull(pull: { title: string; body: string; head: string; draft?: boolean }): Promise<Pull>;
   /** Replaces the status image on a ref that branch lists and clones never show. */
   publishStatus(svg: string): Promise<void>;
+  readConfig(): Promise<Config>;
+  /** Paths a task branch has changed so far. */
+  branchFiles(name: string): Promise<string[]>;
 }

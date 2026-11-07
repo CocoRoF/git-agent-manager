@@ -29,6 +29,7 @@ const TOOLS = [
       type: "object",
       properties: {
         repo,
+        agenda: { type: "integer", description: "The agenda issue this plan carries out" },
         proposed: { type: "boolean", description: "Hold new tasks until a person approves them" },
         milestones: {
           type: "array",
@@ -107,6 +108,7 @@ const TOOLS = [
 
 export function toPlan(a: any): PlanInput {
   return {
+    agenda: a.agenda,
     proposed: a.proposed,
     closeMilestones: a.close_milestones,
     milestones: a.milestones?.map((m: any) => ({
@@ -164,7 +166,7 @@ export async function serveMcp(version: string): Promise<void> {
       const tracker = new GitHubTracker(found.owner, found.repo, token);
       const client = server.getClientVersion()?.name ?? "agent";
       const agent = process.env.GAM_AGENT || `${client}#${session}`;
-      const result = await run(req.params.name, { tracker, agent, currentBranch: currentBranch(cwd) }, a);
+      const result = await run(req.params.name, { tracker, agent, role: process.env.GAM_ROLE, currentBranch: currentBranch(cwd) }, a);
       if (req.params.name !== "gam_status") void refreshStatus(tracker).catch(() => {});
       return { content: [{ type: "text", text: format(result) }] };
     } catch (e) {

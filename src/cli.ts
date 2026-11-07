@@ -11,7 +11,7 @@ import { runHook } from "./hooks.ts";
 import { currentBranch, detectRepo, findToken } from "./local.ts";
 import { parseSlug, serveMcp, toPlan } from "./mcp.ts";
 import { refreshStatus } from "./svg.ts";
-import { OpError, VIEWER, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
+import { OpError, VIEWER, agenda, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
 
 declare const __VERSION__: string;
 declare const __VIEWER_HTML__: string;
@@ -22,6 +22,7 @@ const HELP = `git-agent-manager ${VERSION}
   npx github:CocoRoF/git-agent-manager          connect your agents and this repo
 
   gam status                                    where the plan stands
+  gam agenda <text>                             hand agents a goal to plan and carry out
   gam plan <file.json | ->                      create or extend the plan
   gam claim [issue] [--new title] [--takeover]  take a task
   gam update [issue] <note> [--unblock]         add a line of progress
@@ -32,7 +33,8 @@ const HELP = `git-agent-manager ${VERSION}
 
   --repo owner/name   use this repo instead of the current folder's origin
   --json              print machine-readable output
-  GAM_AGENT           the name this agent signs its work with`;
+  GAM_AGENT           the name this agent signs its work with
+  GAM_ROLE            prefer tasks with this role:* label`;
 
 function fail(message: string): never {
   console.error(message);
@@ -120,13 +122,16 @@ async function main(): Promise<void> {
 
   const t = tracker(values.repo);
   if (command === "dashboard") return dashboard(t, values.out);
-  const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", currentBranch: currentBranch() };
+  const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", role: process.env.GAM_ROLE, currentBranch: currentBranch() };
   const number = /^\d+$/.test(rest[0] ?? "") ? Number(rest.shift()) : undefined;
   let result: Result;
 
   switch (command) {
     case "status":
       result = await status(ctx);
+      break;
+    case "agenda":
+      result = await agenda(ctx, { text: rest.join(" ") });
       break;
     case "plan": {
       const path = rest[0] ?? "-";

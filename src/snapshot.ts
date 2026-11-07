@@ -58,10 +58,11 @@ export async function loadSnapshot(
   paged: (path: string, limit?: number) => Promise<Json[]>,
 ): Promise<Snapshot> {
   const base = `/repos/${owner}/${repo}`;
-  const [info, milestones, unplanned, refs, openPulls, recentPulls] = await Promise.all([
+  const [info, milestones, unplanned, agendas, refs, openPulls, recentPulls] = await Promise.all([
     get(base),
     paged(`${base}/milestones?state=all`),
     paged(`${base}/issues?state=all&labels=unplanned`, 100),
+    paged(`${base}/issues?state=all&labels=agenda`, 100),
     paged(`${base}/git/matching-refs/heads/task/`),
     paged(`${base}/pulls?state=open`),
     // Enough to prove how recently closed tasks were closed. Older ones show as closed without a PR.
@@ -88,6 +89,7 @@ export async function loadSnapshot(
     issues: [...byNumber.values()],
     branches: refs.map((r: Json) => String(r.ref).replace("refs/heads/", "")),
     pulls: [...openPulls, ...recentPulls].map(toPull),
+    agendas: agendas.filter((i: Json) => !i.pull_request).map(toIssue),
     commits: commits.map((c: Json) => ({
       sha: c.sha,
       message: c.commit?.message ?? "",

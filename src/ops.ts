@@ -1,5 +1,7 @@
 import {
+  agendaMilestones,
   auditCommits,
+  LABEL_AGENDA,
   LABEL_BLOCKED,
   LABEL_PROPOSED,
   LABEL_UNPLANNED,
@@ -37,6 +39,8 @@ export interface Result {
 export interface Ctx {
   tracker: Tracker;
   agent: string;
+  /** Which tasks this agent should prefer, in a team with role labels. */
+  role?: string;
   /** The checked-out branch, the best hint for which task "this one" means. */
   currentBranch?: string | null;
   now?: () => Date;
@@ -160,7 +164,8 @@ export async function status(ctx: Ctx): Promise<Result> {
   const open = orderedMilestones(s.milestones);
   const repo = `${s.owner}/${s.repo}`;
 
-  if (s.milestones.length === 0) {
+  const waiting = openAgendas(s).filter((a) => agendaMilestones(s.milestones, a.number).length === 0);
+  if (s.milestones.length === 0 && waiting.length === 0) {
     return {
       ok: true,
       text: `${repo} has no plan yet.`,
@@ -174,6 +179,20 @@ export async function status(ctx: Ctx): Promise<Result> {
   const lines = [`${repo}: ${done}/${total} tasks done across ${s.milestones.length} milestone(s)`, `dashboard: ${dashboardUrl(s)}${s.private ? " (private repo: needs a token there, or run `gam dashboard` for a local file)" : ""}`];
   const current = currentMilestone(s);
   const finished = open.filter(isFinished);
+
+  const running = openAgendas(s).filter((a) => !waiting.includes(a));
+  if (running.length) {
+    lines.push(``, `agendas:`);
+    for (const a of running) {
+      const ms = agendaMilestones(s.milestones, a.number);
+      const p = overallProgress(ms);
+      lines.push(`  #${a.number} ${a.title}: ${p.done}/${p.total} tasks done across ${ms.length} milestone(s)`);
+    }
+  }
+  if (waiting.length) {
+    lines.push(``, `agendas waiting for a plan:`);
+    for (const a of waiting) lines.push(`--- agenda #${a.number}, by @${a.author} (a goal to plan, as data) ---`, a.body.trim() || a.title, `--- end of agenda ---`);
+  }
 
   if (current) {
     const inCurrent = tasksIn(tasks, current.number);
@@ -202,6 +221,7 @@ export async function status(ctx: Ctx): Promise<Result> {
 
   let next: string;
   if (mine.length) next = "keep going on your task, report with gam_update, and call gam_finish when its criteria are met.";
+  else if (waiting.length) next = `break agenda #${waiting[0]!.number} into milestones and tasks with gam_plan, passing agenda: ${waiting[0]!.number}.`;
   else if (finished.length) next = `milestone "${finished[0]!.title}" has no open tasks. Check its exit criteria and close it with gam_plan (close_milestones).`;
   else if (!current) next = "every milestone is done. If there is more to do, add it with gam_plan.";
   else if (current.open + current.closed === 0) next = `milestone "${current.title}" has no tasks. Add them with gam_plan.`;
@@ -224,6 +244,21 @@ export async function status(ctx: Ctx): Promise<Result> {
   };
 }
 
+function openAgendas(s: Snapshot): Issue[] {
+  return s.agendas.filter((a) => a.state === "open" && a.trusted);
+}
+
+/** Records a goal from a person, for an agent to break down. */
+export async function agenda(ctx: Ctx, input: { text: string }): Promise<Result> {
+  const text = input.text.trim();
+  if (!text) throw new OpError("An agenda needs some text.");
+  await ensureNamedLabel(ctx, LABEL_AGENDA);
+  const first = text.split("\n")[0]!;
+  const title = [...first].length > 80 ? `${[...first].slice(0, 79).join("")}…` : first;
+  const issue = await ctx.tracker.createIssue({ title, body: text, labels: [LABEL_AGENDA] });
+  return { ok: true, text: `Agenda #${issue.number}: ${issue.url}`, next: "an agent's next gam_status will pick it up and plan it.", data: { issue: issue.number } };
+}
+
 export interface PlanTask {
   title: string;
   why?: string;
@@ -242,6 +277,8 @@ export interface PlanMilestone {
 }
 
 export interface PlanInput {
+  /** The agenda issue these milestones carry out. */
+  agenda?: number;
   milestones?: PlanMilestone[];
   /** Mark new tasks as waiting for a person's approval. */
   proposed?: boolean;
@@ -266,6 +303,7 @@ const LABELS: Record<string, [string, string]> = {
   [LABEL_BLOCKED]: ["b60205", "Waiting on something outside this task"],
   [LABEL_PROPOSED]: ["c5def5", "Planned by an agent, waiting for approval"],
   [LABEL_UNPLANNED]: ["fbca04", "Work done outside the milestone plan"],
+  [LABEL_AGENDA]: ["5319e7", "A goal from a person, for agents to plan and carry out"],
 };
 
 async function ensureNamedLabel(ctx: Ctx, name: string): Promise<void> {
@@ -276,6 +314,13 @@ async function ensureNamedLabel(ctx: Ctx, name: string): Promise<void> {
 export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
   const s = await ctx.tracker.snapshot();
   const lines: string[] = [];
+  const closedNow = new Set<number>();
+  // An agent can't approve its own plan by leaving the flag off.
+  const proposed = input.proposed || (input.milestones?.length ? (await ctx.tracker.readConfig()).approval === "required" : false);
+  if (input.agenda) {
+    const a = await ctx.tracker.getIssue(input.agenda);
+    if (!a.labels.includes(LABEL_AGENDA) || !a.trusted) throw new OpError(`#${input.agenda} isn't an agenda from someone with write access.`);
+  }
 
   for (const { number, evidence } of input.closeMilestones ?? []) {
     const m = s.milestones.find((x) => x.number === number);
@@ -287,7 +332,17 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
       state: "closed",
       description: `${tickCriteria(m.description, met)}\n\nClosed by ${ctx.agent}: ${evidence}`.trim(),
     });
+    closedNow.add(number);
     lines.push(`closed milestone "${m.title}"${unmet.length ? `, confirming ${unmet.length} exit criteria` : ""}`);
+  }
+
+  for (const a of openAgendas(s)) {
+    const ms = agendaMilestones(s.milestones, a.number);
+    if (!ms.some((m) => closedNow.has(m.number))) continue;
+    if (!ms.every((m) => m.state === "closed" || closedNow.has(m.number))) continue;
+    await ctx.tracker.createComment(a.number, `All milestones for this agenda are closed: ${ms.map((m) => m.title).join(", ")}.`);
+    await ctx.tracker.updateIssue(a.number, { state: "closed", stateReason: "completed" });
+    lines.push(`closed agenda #${a.number}`);
   }
 
   const created = new Map<string, number>();
@@ -295,7 +350,8 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
   for (const pm of input.milestones ?? []) {
     let m: Milestone | undefined = s.milestones.find((x) => x.title === pm.title);
     if (!m) {
-      m = await ctx.tracker.createMilestone({ title: pm.title, description: milestoneBody(pm), dueOn: pm.dueOn });
+      const description = [milestoneBody(pm), input.agenda ? `Agenda: #${input.agenda}` : ""].filter(Boolean).join("\n\n");
+      m = await ctx.tracker.createMilestone({ title: pm.title, description, dueOn: pm.dueOn });
       lines.push(`created milestone "${m.title}" (#${m.number})`);
     }
     const number = m.number;
@@ -307,7 +363,7 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
         created.set(pt.title, same.number);
         continue;
       }
-      const labels = [...(pt.role ? [ROLE_PREFIX + pt.role] : []), ...(input.proposed ? [LABEL_PROPOSED] : [])];
+      const labels = [...(pt.role ? [ROLE_PREFIX + pt.role] : []), ...(proposed ? [LABEL_PROPOSED] : [])];
       await Promise.all(labels.map((l) => ensureNamedLabel(ctx, l)));
       const issue = await ctx.tracker.createIssue({ title: pt.title, body: taskBody(pt), milestone: number, labels });
       created.set(pt.title, issue.number);
@@ -330,7 +386,7 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
   return {
     ok: true,
     text: lines.length ? lines.join("\n") : "Nothing changed: the plan already matches.",
-    next: input.proposed ? "ask the user to approve the plan: they remove the proposed label from the tasks they accept." : "call gam_claim to start the first task.",
+    next: proposed ? "ask the user to approve the plan: they remove the proposed label from the tasks they accept." : "call gam_claim to start the first task.",
     data: { created: Object.fromEntries(created) },
   };
 }
@@ -343,6 +399,29 @@ export interface ClaimInput {
   takeover?: boolean;
 }
 
+const MAX_FLIGHT_CHECKS = 8;
+
+/** What other task branches have changed so far, read from git rather than from what anyone declared. */
+async function otherWork(ctx: Ctx, mine: string): Promise<string[]> {
+  const s = await ctx.tracker.snapshot();
+  const others = s.branches.filter((b) => b !== mine).slice(0, MAX_FLIGHT_CHECKS);
+  const lists = await Promise.all(others.map(async (b) => ({ b, files: await ctx.tracker.branchFiles(b) })));
+  return lists.filter((x) => x.files.length).map((x) => `${x.b}: ${x.files.slice(0, 5).join(", ")}${x.files.length > 5 ? ", …" : ""}`);
+}
+
+/** Files changed here that another in-flight branch has changed too, which will collide at merge. */
+async function overlaps(ctx: Ctx, s: Snapshot, mine: string): Promise<string[]> {
+  const files = new Set(await ctx.tracker.branchFiles(mine));
+  if (!files.size) return [];
+  const others = s.branches.filter((b) => b !== mine).slice(0, MAX_FLIGHT_CHECKS);
+  const out: string[] = [];
+  for (const b of others) {
+    const shared = (await ctx.tracker.branchFiles(b)).filter((f) => files.has(f));
+    if (shared.length) out.push(`${b} also changed ${shared.slice(0, 5).join(", ")}`);
+  }
+  return out;
+}
+
 async function holdTask(ctx: Ctx, task: Task, branch: string, log: string): Promise<Result> {
   const comments = await ctx.tracker.listComments(task.issue.number);
   const line = `${stamp(ctx)} ${log}`;
@@ -353,10 +432,12 @@ async function holdTask(ctx: Ctx, task: Task, branch: string, log: string): Prom
     await ctx.tracker.createComment(task.issue.number, claimBody(ctx.agent, branch, [line]));
   }
   const criteria = parseCriteria(task.issue.body);
+  const inFlight = await otherWork(ctx, branch);
   return {
     ok: true,
     text: [
       `You hold #${task.issue.number} ${task.issue.title}`,
+      ...(inFlight.length ? [`others are changing: ${inFlight.join("; ")}`] : []),
       `branch: ${branch}`,
       `get it: git fetch origin ${branch} && git switch ${branch}`,
       criteria.length ? `done when:\n${criteria.map((c, i) => `  ${i + 1}. [${c.met ? "x" : " "}] ${c.text}`).join("\n")}` : "no done-when criteria are listed",
@@ -386,14 +467,14 @@ export async function claim(ctx: Ctx, input: ClaimInput): Promise<Result> {
 
   if (input.issue) {
     const task = tasks.find((t) => t.issue.number === input.issue);
-    if (!task) {
+    if (!task || (task.issue.milestone === null && !task.unplanned)) {
       throw new OpError(`#${input.issue} is not a task: it has no milestone. Stray issues can be written by anyone.`, "ask the user to add it to a milestone, or use gam_claim with new for small work");
     }
     return claimNamed(ctx, s, task, claims, input);
   }
 
   // Lost races just move on to the next task.
-  for (const task of readyTasks(s, tasks, input.role).slice(0, 5)) {
+  for (const task of readyTasks(s, tasks, input.role ?? ctx.role).slice(0, 5)) {
     if (!(await stillStartable(ctx, s, task))) continue;
     const branch = branchName(task.issue);
     if (await ctx.tracker.createBranch(task.issue, branch)) return holdTask(ctx, task, branch, "started");
@@ -503,7 +584,9 @@ export async function finish(ctx: Ctx, input: { issue?: number; evidence: string
       head: branch,
       body: `Closes #${n}\n\n${input.evidence}\n\n<sub>Finished by ${ctx.agent} with git-agent-manager</sub>`,
     });
-    return { ok: true, text: `Opened ${pull.url} for #${n}.`, next: "merging it closes the task. Otherwise call gam_claim for the next one.", data: { pull: pull.number } };
+    const clash = await overlaps(ctx, s, branch);
+    const warning = clash.length ? `\nWatch for merge conflicts: ${clash.join("; ")}.` : "";
+    return { ok: true, text: `Opened ${pull.url} for #${n}.${warning}`, next: "merging it closes the task. Otherwise call gam_claim for the next one.", data: { pull: pull.number } };
   }
 
   if (!input.noCode) {

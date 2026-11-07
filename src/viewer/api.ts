@@ -1,5 +1,6 @@
+import { isFinished, orderedMilestones, overallProgress } from "../derive.ts";
 import type { Snapshot } from "../model.ts";
-import { loadSnapshot } from "../snapshot.ts";
+import { loadSnapshot, toMilestone } from "../snapshot.ts";
 
 const API = "https://api.github.com";
 const TOKEN_KEY = "gam.token";
@@ -67,6 +68,21 @@ async function fetchPage(url: string): Promise<{ body: any; next: string | null 
   const etag = res.headers.get("etag");
   if (etag) writeCache(url, { etag, body, next });
   return { body, next };
+}
+
+export interface RepoSummary {
+  done: number;
+  total: number;
+  current: string | null;
+}
+
+/** One call per repo, so a page of many repos stays cheap. */
+export async function fetchSummary(slug: string): Promise<RepoSummary> {
+  const { body } = await fetchPage(`${API}/repos/${slug}/milestones?state=all&per_page=100`);
+  const milestones = (body as any[]).map(toMilestone);
+  const { done, total } = overallProgress(milestones);
+  const current = orderedMilestones(milestones).find((m) => !isFinished(m));
+  return { done, total, current: current?.title ?? null };
 }
 
 export function fetchSnapshot(owner: string, repo: string): Promise<Snapshot> {

@@ -1,6 +1,6 @@
-import { auditCommits, countByState, currentMilestone, deriveTasks, isFinished, orderedMilestones, overallProgress, tasksIn } from "../derive.ts";
+import { agendaMilestones, auditCommits, countByState, currentMilestone, deriveTasks, isFinished, orderedMilestones, overallProgress, tasksIn } from "../derive.ts";
 import type { Milestone, Snapshot, Task, TaskState } from "../model.ts";
-import { ViewerError, fetchSnapshot, getToken, setToken } from "./api.ts";
+import { ViewerError, fetchSnapshot, fetchSummary, getToken, setToken } from "./api.ts";
 import { t } from "./i18n.ts";
 
 const RECENT_KEY = "gam.repos";
@@ -113,6 +113,28 @@ function column(state: TaskState, tasks: Task[]): HTMLElement | null {
   return col;
 }
 
+function progressBar(done: number, total: number): HTMLElement {
+  const el = h("div", { class: "bar", role: "img", "aria-label": `${t.done} ${done} / ${total}` });
+  if (done > 0 && total > 0) el.append(h("i", { class: "s-done", style: `width:${(done / total) * 100}%` }));
+  return el;
+}
+
+function agendaList(s: Snapshot): HTMLElement | null {
+  const open = s.agendas.filter((a) => a.state === "open" && a.trusted);
+  if (!open.length) return null;
+  const rows = open.map((a) => {
+    const p = overallProgress(agendaMilestones(s.milestones, a.number));
+    const row = link(
+      a.url,
+      h("div", { class: "row" }, h("span", { class: "name" }, a.title), h("span", { class: "meta" }, p.total ? `${p.done}/${p.total}` : t.planning)),
+      progressBar(p.done, p.total),
+    );
+    row.className = "ms";
+    return row;
+  });
+  return h("section", {}, h("h2", {}, t.agendas), h("div", { class: "card" }, ...rows));
+}
+
 function topBar(repo: string | null, extra: Child[] = []): HTMLElement {
   return h(
     "div",
@@ -139,7 +161,7 @@ function renderPlan(s: Snapshot, stamp: Date, reload: () => void): void {
     extras.push(again);
   }
 
-  if (s.milestones.length === 0) {
+  if (s.milestones.length === 0 && s.agendas.every((a) => a.state !== "open")) {
     root.replaceChildren(
       h(
         "div",
@@ -200,6 +222,7 @@ function renderPlan(s: Snapshot, stamp: Date, reload: () => void): void {
           h("div", { class: "sum" }, t.tasksDone(done, total, s.milestones.length)),
         ),
       ),
+      agendaList(s),
       h("h2", {}, t.milestones),
       list,
       boardTitle,
@@ -292,7 +315,18 @@ function renderHome(): void {
       localStorage.setItem(RECENT_KEY, JSON.stringify(savedRepos().filter((x) => x !== slug)));
       renderHome();
     });
-    list.append(h("div", { class: "line" }, h("a", { href: `#/${slug}` }, slug), remove));
+    const meta = h("span", { class: "meta" });
+    const track = h("div", { class: "bar" });
+    const row = h("a", { href: `#/${slug}` }, h("div", { class: "row" }, h("span", { class: "name" }, slug), meta), track);
+    list.append(h("div", { class: "line" }, row, remove));
+    void fetchSummary(slug)
+      .then((p) => {
+        meta.textContent = p.total ? `${Math.round((p.done / p.total) * 100)}%${p.current ? ` · ${p.current}` : ""}` : t.noTasks;
+        track.replaceWith(progressBar(p.done, p.total));
+      })
+      .catch(() => {
+        meta.textContent = "—";
+      });
   }
 
   root.replaceChildren(

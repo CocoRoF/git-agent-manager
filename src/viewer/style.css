@@ -109,9 +109,14 @@ h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 28px 0 10px
 .section { padding: 18px 20px; margin-bottom: 14px; }
 .section h2 { margin: 0 0 10px; }
 .section .sub { color: var(--ink-2); margin: 0 0 10px; }
-.repos a { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
-.repos .line { display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
-.repos .line a { flex: 1; border: 0; }
+.repos .line { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.repos .line a { flex: 1; min-width: 0; color: var(--ink); }
+.repos .line a:hover { text-decoration: none; }
+.repos .row { display: flex; gap: 12px; align-items: baseline; margin-bottom: 6px; }
+.repos .name { font-weight: 600; flex: 1; }
+.repos .meta { color: var(--ink-3); font-size: 12px; }
+a.ms { color: var(--ink); }
+a.ms:hover { text-decoration: none; }
 .repos .line:last-child { border-bottom: 0; }
 .tip { position: fixed; z-index: 5; pointer-events: none; background: var(--ink); color: var(--surface); padding: 4px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
 .foot { color: var(--ink-3); font-size: 12px; margin-top: 28px; }
