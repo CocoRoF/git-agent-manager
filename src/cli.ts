@@ -8,7 +8,8 @@ import { connectAgents, proposeRepoFiles } from "./connect.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { GitHubTracker } from "./github.ts";
 import { currentBranch, detectRepo, findToken } from "./local.ts";
-import { parseSlug, refreshStatus, serveMcp, toPlan } from "./mcp.ts";
+import { parseSlug, serveMcp, toPlan } from "./mcp.ts";
+import { refreshStatus } from "./svg.ts";
 import { OpError, VIEWER, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
 
 declare const __VERSION__: string;

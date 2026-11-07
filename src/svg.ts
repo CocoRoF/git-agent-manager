@@ -1,5 +1,5 @@
 import { countByState, currentMilestone, deriveTasks, orderedMilestones, overallProgress, tasksIn } from "./derive.ts";
-import type { Milestone, Snapshot } from "./model.ts";
+import type { Milestone, Snapshot, Tracker } from "./model.ts";
 
 const WIDTH = 720;
 const PAD = 24;
@@ -110,4 +110,10 @@ ${body}
 ${legend}
 </svg>
 `;
+}
+
+/** A private repo's image can't be fetched anonymously, so there's no point publishing one. */
+export async function refreshStatus(tracker: Tracker): Promise<void> {
+  const s = await tracker.snapshot();
+  if (!s.private && s.milestones.length) await tracker.publishStatus(renderStatus(s));
 }

@@ -25,6 +25,7 @@ export class FakeTracker implements Tracker {
       issues: this.issues,
       branches: [...this.branches.keys()],
       pulls: this.pulls,
+      commits: [],
     });
   }
 
@@ -71,7 +72,7 @@ export class FakeTracker implements Tracker {
   }
 
   async createMilestone(m: { title: string; description?: string; dueOn?: string }): Promise<Milestone> {
-    const ms: Milestone = { number: this.milestones.length + 1, title: m.title, description: m.description ?? "", state: "open", dueOn: m.dueOn ?? null, open: 0, closed: 0, url: "" };
+    const ms: Milestone = { number: this.milestones.length + 1, title: m.title, description: m.description ?? "", state: "open", dueOn: m.dueOn ?? null, createdAt: "2026-01-01T00:00:00Z", open: 0, closed: 0, url: "" };
     this.milestones.push(ms);
     return structuredClone(ms);
   }

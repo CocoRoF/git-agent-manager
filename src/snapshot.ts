@@ -11,6 +11,7 @@ export function toMilestone(m: Json): Milestone {
     description: m.description ?? "",
     state: m.state,
     dueOn: m.due_on,
+    createdAt: m.created_at,
     open: m.open_issues,
     closed: m.closed_issues,
     url: m.html_url,
@@ -67,6 +68,10 @@ export async function loadSnapshot(
     get(`${base}/pulls?state=closed&sort=updated&direction=desc&per_page=100`),
   ]);
 
+  // Commits from before there was a plan can't have gone around it.
+  const started = milestones.map((m: Json) => String(m.created_at)).sort()[0];
+  const commits = started ? await get(`${base}/commits?sha=${encodeURIComponent(info.default_branch)}&since=${encodeURIComponent(started)}&per_page=100`) : [];
+
   const open = milestones.filter((m: Json) => m.state === "open");
   const issueLists = await Promise.all(open.map((m: Json) => paged(`${base}/issues?state=all&milestone=${m.number}`)));
   const byNumber = new Map<number, Issue>();
@@ -83,5 +88,12 @@ export async function loadSnapshot(
     issues: [...byNumber.values()],
     branches: refs.map((r: Json) => String(r.ref).replace("refs/heads/", "")),
     pulls: [...openPulls, ...recentPulls].map(toPull),
+    commits: commits.map((c: Json) => ({
+      sha: c.sha,
+      message: c.commit?.message ?? "",
+      url: c.html_url,
+      author: c.author?.login ?? c.commit?.author?.name ?? "unknown",
+      bot: c.author?.type === "Bot" || /\[bot\]$/.test(c.commit?.author?.name ?? ""),
+    })),
   };
 }

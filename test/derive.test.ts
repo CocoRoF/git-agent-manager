@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { branchIssue, branchName, closingIssues, parseCriteria, tickCriteria } from "../src/derive.ts";
+import { auditCommits, branchIssue, branchName, closingIssues, parseCriteria, tickCriteria } from "../src/derive.ts";
+import type { CommitRef, Pull, Snapshot } from "../src/model.ts";
 import { parseRemote } from "../src/local.ts";
 
 it("reads task branches", () => {
@@ -30,4 +31,24 @@ it("parses GitHub remotes", () => {
   assert.deepEqual(parseRemote("git@github.com:o/r.git"), { owner: "o", repo: "r" });
   assert.deepEqual(parseRemote("ssh://git@github.com/o/my.repo"), { owner: "o", repo: "my.repo" });
   assert.equal(parseRemote("https://gitlab.com/o/r.git"), null);
+});
+
+it("flags commits no task accounts for", () => {
+  const c = (sha: string, message: string, bot = false): CommitRef => ({ sha, message, url: "", author: "a", bot });
+  const p = (number: number, headRef: string, body = ""): Pull => ({ number, title: "", body, headRef, headRepo: "o/r", state: "closed", mergedAt: "x", draft: false, url: "" });
+  const s = {
+    pulls: [p(1, "task/5-x"), p(2, "feature", "Closes #6"), p(3, "feature-b")],
+    commits: [
+      c("a", "Add thing (#1)"),
+      c("b", "Merge pull request #2 from o/feature"),
+      c("c", "Stray change (#3)"),
+      c("d", "direct push to main"),
+      c("e", "Fix it\n\nCloses #7"),
+      c("f", "Bump dep", true),
+      c("g", "Old work (#99)"),
+    ],
+  } as unknown as Snapshot;
+  const a = auditCommits(s);
+  assert.equal(a.checked, 6);
+  assert.deepEqual(a.offPlan.map((x) => x.sha), ["c", "d"]);
 });

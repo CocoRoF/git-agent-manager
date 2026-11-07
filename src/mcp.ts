@@ -6,7 +6,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { GitHubTracker } from "./github.ts";
 import { currentBranch, detectRepo, findToken } from "./local.ts";
 import { OpError, block, claim, finish, format, plan, status, update, type Ctx, type PlanInput, type Result } from "./ops.ts";
-import { renderStatus } from "./svg.ts";
+import { refreshStatus } from "./svg.ts";
 
 const INSTRUCTIONS = `git-agent-manager keeps work in this repo on its milestone plan, using GitHub Milestones and Issues.
 Call gam_status before starting work on a repo. If it has a plan, do the work through gam_claim, gam_update and gam_finish, one task at a time, and follow the "next:" line in each result.
@@ -137,11 +137,6 @@ async function run(name: string, ctx: Ctx, a: any): Promise<Result> {
     default:
       throw new OpError(`Unknown tool ${name}.`);
   }
-}
-
-export async function refreshStatus(tracker: GitHubTracker): Promise<void> {
-  const s = await tracker.snapshot();
-  if (!s.private && s.milestones.length) await tracker.publishStatus(renderStatus(s));
 }
 
 export async function serveMcp(version: string): Promise<void> {

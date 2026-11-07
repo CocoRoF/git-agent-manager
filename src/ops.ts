@@ -1,4 +1,5 @@
 import {
+  auditCommits,
   LABEL_BLOCKED,
   LABEL_PROPOSED,
   LABEL_UNPLANNED,
@@ -195,6 +196,9 @@ export async function status(ctx: Ctx): Promise<Result> {
 
   const unplanned = tasks.filter((t) => t.unplanned && t.issue.state === "open");
   if (unplanned.length) lines.push(``, `unplanned work open: ${unplanned.length}`);
+
+  const { checked, offPlan } = auditCommits(s);
+  if (offPlan.length) lines.push(``, `${offPlan.length} of ${checked} commits since the plan began aren't linked to a task.`);
 
   let next: string;
   if (mine.length) next = "keep going on your task, report with gam_update, and call gam_finish when its criteria are met.";
