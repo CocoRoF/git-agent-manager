@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { connectAgents, proposeRepoFiles } from "./connect.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { GitHubTracker } from "./github.ts";
+import { runHook } from "./hooks.ts";
 import { currentBranch, detectRepo, findToken } from "./local.ts";
 import { parseSlug, serveMcp, toPlan } from "./mcp.ts";
 import { refreshStatus } from "./svg.ts";
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
   if (values.help) return console.log(HELP);
   if (values.version) return console.log(VERSION);
   if (command === "mcp") return serveMcp(VERSION);
+  if (command === "hook") return runHook(rest[0]);
   if (!command || command === "connect") return connect(values);
 
   const t = tracker(values.repo);
