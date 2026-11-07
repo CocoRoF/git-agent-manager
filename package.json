@@ -1,0 +1,26 @@
+{
+  "name": "git-agent-manager",
+  "version": "0.1.0",
+  "description": "Connect once, and any coding agent in your repo follows a milestone plan, with a live progress dashboard. Built on plain GitHub Milestones and Issues.",
+  "license": "Apache-2.0",
+  "repository": "github:CocoRoF/git-agent-manager",
+  "type": "module",
+  "bin": {
+    "git-agent-manager": "dist/cli.js",
+    "gam": "dist/cli.js"
+  },
+  "files": ["dist", "LICENSE", "README.md"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc",
+    "test": "node --test test/*.test.ts",
+    "test:e2e": "GAM_E2E=1 node --test test/e2e/*.test.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
