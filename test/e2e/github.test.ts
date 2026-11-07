@@ -5,7 +5,7 @@ import { before, it } from "node:test";
 import { deriveTasks } from "../../src/derive.ts";
 import { GitHubTracker } from "../../src/github.ts";
 import { findToken } from "../../src/local.ts";
-import { OpError, claim, finish, plan, status, update, type Ctx } from "../../src/ops.ts";
+import { OpError, agenda, claim, finish, plan, status, update, type Ctx } from "../../src/ops.ts";
 import type { Snapshot } from "../../src/model.ts";
 import { renderStatus } from "../../src/svg.ts";
 
@@ -16,11 +16,13 @@ const t = new GitHubTracker(owner, repo, token);
 const ctx = (agent: string): Ctx => ({ tracker: t, agent });
 
 async function api(method: string, path: string, body?: unknown): Promise<any> {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const send = () =>
+    fetch(`https://api.github.com/repos/${owner}/${repo}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  const res = await send().catch(() => new Promise((r) => setTimeout(r, 3000)).then(send));
   const text = await res.text();
   if (res.status >= 400) throw new Error(`${method} ${path}: ${res.status} ${text.slice(0, 200)}`);
   return text ? JSON.parse(text) : null;
@@ -132,4 +134,46 @@ it("runs a whole plan on real GitHub", { skip: !enabled, timeout: 180_000 }, asy
   const img = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/refs/gam/status/status.svg`);
   assert.equal(img.status, 200);
   assert.match(await img.text(), /<svg/);
+});
+
+it("takes an agenda through a plan, an agent merge and closure", { skip: !enabled, timeout: 240_000 }, async () => {
+  for (const m of await api("GET", "/milestones?state=open&per_page=100")) await api("DELETE", `/milestones/${m.number}`);
+  const config = await t.readFile(".github/gam.yml");
+  if (!config?.text.includes("merge: agent")) {
+    await api("PUT", "/contents/.github/gam.yml", { message: "Let agents merge", content: Buffer.from("merge: agent\n").toString("base64"), sha: config?.sha });
+  }
+
+  const made = await agenda(ctx("boss"), { text: "경쟁사 분석 보고서를 만들어 줘" });
+  const a = (made.data as { issue: number }).issue;
+  await settled((x) => x.agendas.some((i) => i.number === a));
+  const first = await status(ctx("lead"));
+  assert.match(first.next!, new RegExp(`agenda: ${a}`));
+
+  const planned = await plan(ctx("lead"), { agenda: a, milestones: [{ title: `Agenda ${Date.now()}`, tasks: [{ title: "Collect prices" }] }] });
+  const task = (planned.data as { created: Record<string, number> }).created["Collect prices"]!;
+  await settled((x) => deriveTasks(x).some((k) => k.issue.number === task));
+
+  const held = await claim(ctx("worker"), {});
+  const branch = (held.data as { branch: string }).branch;
+  await commitTo(branch, `prices-${Date.now()}.txt`);
+
+  // The first attempt opens the PR, and it won't merge before checks have had a chance to start.
+  const opened = await finish(ctx("worker"), { issue: task, evidence: "collected", merge: true });
+  assert.match(opened.text, /may not have started|still running/);
+  const pull = (opened.data as { pull: number }).pull;
+  let merged = false;
+  for (let i = 0; i < 30 && !merged; i++) {
+    await new Promise((r) => setTimeout(r, 6000));
+    const again = await finish(ctx("worker"), { issue: task, evidence: "collected", merge: true });
+    merged = /Merged/.test(again.text);
+  }
+  assert.ok(merged, "agent merge never went through");
+  const commits = await api("GET", "/commits?sha=main&per_page=1");
+  assert.match(commits[0].commit.message.split("\n")[0], new RegExp(`\\(#${pull}\\)$`));
+
+  const s = await settled((x) => deriveTasks(x).find((k) => k.issue.number === task)?.state === "done" && x.milestones.some((m) => m.open === 0 && m.state === "open"));
+  const m = s.milestones.find((x) => x.state === "open" && x.open === 0)!;
+  const closed = await plan(ctx("lead"), { closeMilestones: [{ number: m.number, evidence: "report done" }] });
+  assert.match(closed.text, new RegExp(`closed agenda #${a}`));
+  assert.equal((await t.getIssue(a)).state, "closed");
 });

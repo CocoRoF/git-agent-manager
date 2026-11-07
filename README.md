@@ -27,7 +27,8 @@ That's the whole setup. It:
 
 1. Connects Claude Code, Codex, Cursor and Gemini if you have them. This is per machine, so it then works in every repo.
 2. Uses the GitHub login you already have (`GITHUB_TOKEN`, `gh`, or git credentials).
-3. Offers a pull request that adds the progress card to your README and a small workflow that keeps it current. You can say no.
+3. Adds a short block to Codex's and Gemini's own global instruction files, and two small hooks to Claude Code. Your repo isn't touched, and your own text in those files stays.
+4. Offers a pull request that adds the progress card to your README and a small workflow that keeps it current. You can say no.
 
 Then just ask your agent for what you want:
 
@@ -76,6 +77,18 @@ Going off plan is never blocked by default. It's made visible. You choose how fa
 | PR check | A warning on PRs with no task, unmet criteria or open blockers | Any repo with the workflow |
 | Merge block | Set the check as required, with `mode: strict` | Public repos, or GitHub Pro and up |
 
+### Does it work?
+
+We ran fixed jobs on a small scratch repo and scored the result from GitHub, not from what the agent said. With the setup above, in repos with a plan:
+
+| Agent | Work stayed on the plan |
+|---|---|
+| Claude Code | 12 of 12 runs |
+| Codex | 6 of 6 runs |
+| Codex with MCP alone, no instructions file | 0 of 6 runs |
+
+These are short jobs on a tiny repo, a few runs each. Long sessions in big repos aren't measured yet. [Details and method](docs/BENCHMARK.md).
+
 ### Settings
 
 All optional, in `.github/gam.yml`:
@@ -109,6 +122,7 @@ On a public repo, anyone can open an issue, so an issue is a way to try to steer
 
 - GitHub only for now. The core sits behind one interface, and GitLab and Gitea have the same concepts.
 - Only people and agents with write access can claim tasks.
+- Cursor has no global instructions file, so it relies on MCP alone. Use `--agents-md` to add a pointer to the repo. Cursor and Gemini haven't been through the benchmark.
 - Agents using the same GitHub account all appear as you. Each signs its progress comment with its own name, and `GAM_AGENT` sets that name.
 
 ## Develop

@@ -184,7 +184,7 @@ for (const [condition, c] of Object.entries(CONDITIONS)) {
     const seconds = Math.round((Date.now() - began) / 1000);
     if (home) rmSync(home, { recursive: true, force: true });
     await new Promise((res) => setTimeout(res, 5000));
-    const tools = (run.stdout.match(/^mcp: gam\/\w+ started/gm) ?? []).length;
+    const tools = (`${run.stdout}\n${run.stderr}`.match(/^mcp: gam\/\w+ started/gm) ?? []).length;
     const result = { id, tools, at: new Date().toISOString(), seconds, exit: run.status, timedOut: run.error?.code === "ETIMEDOUT", ...(await score(name, { at: planDone }, start, dir)) };
     appendFileSync("bench/results.jsonl", `${JSON.stringify(result)}\n`);
     writeFileSync(`/tmp/gam-bench-${id.replace("/", "-")}.log`, `${run.stdout}\n---\n${run.stderr}`);
