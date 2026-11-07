@@ -20,7 +20,7 @@ import {
   tasksIn,
   tickCriteria,
 } from "./derive.ts";
-import type { Comment, Issue, Milestone, Snapshot, Task, Tracker } from "./model.ts";
+import type { Comment, Issue, Milestone, Pull, Snapshot, Task, Tracker } from "./model.ts";
 
 export const VIEWER = "https://cocorof.github.io/git-agent-manager/";
 /** After this long without a commit or a progress note, a claim counts as abandoned. */
@@ -437,9 +437,9 @@ async function holdTask(ctx: Ctx, task: Task, branch: string, log: string): Prom
     ok: true,
     text: [
       `You hold #${task.issue.number} ${task.issue.title}`,
-      ...(inFlight.length ? [`others are changing: ${inFlight.join("; ")}`] : []),
       `branch: ${branch}`,
       `get it: git fetch origin ${branch} && git switch ${branch}`,
+      ...(inFlight.length ? [`others are changing: ${inFlight.join("; ")}`] : []),
       criteria.length ? `done when:\n${criteria.map((c, i) => `  ${i + 1}. [${c.met ? "x" : " "}] ${c.text}`).join("\n")}` : "no done-when criteria are listed",
       ``,
       taskText(task.issue, comments),
@@ -551,7 +551,28 @@ export async function update(ctx: Ctx, input: { issue?: number; note: string; un
   return { ok: true, text: `Noted on #${n}.`, next: "keep going, and call gam_finish when the criteria are met." };
 }
 
-export async function finish(ctx: Ctx, input: { issue?: number; evidence: string; met?: number[]; noCode?: boolean }): Promise<Result> {
+/** With no checks visible yet, a young pull request may just not have started them. */
+const CHECKS_START_MS = 60_000;
+
+async function tryMerge(ctx: Ctx, n: number, pull: Pull, branch: string): Promise<Result> {
+  const hold = (text: string, next: string): Result => ({ ok: true, text: `${pull.url} is open for #${n}. ${text}`, next, data: { pull: pull.number } });
+  const config = await ctx.tracker.readConfig();
+  if (config.merge !== "agent") {
+    return hold("This repo doesn't let agents merge.", "a person merges it. To allow agents, the repo owner sets merge: agent in .github/gam.yml.");
+  }
+  const { pending, failed, total } = await ctx.tracker.branchChecks(branch);
+  if (failed.length) return hold(`Failing checks: ${failed.join(", ")}.`, "fix them, push, and call gam_finish with merge again.");
+  if (pending.length) return hold(`Checks still running: ${pending.join(", ")}.`, "wait for them, then call gam_finish with merge again.");
+  const now = ctx.now?.() ?? new Date();
+  if (total === 0 && now.getTime() - Date.parse(pull.createdAt) < CHECKS_START_MS) {
+    return hold("Checks may not have started yet.", "wait a minute, then call gam_finish with merge again.");
+  }
+  const refused = await ctx.tracker.mergePull(pull.number, branch);
+  if (refused) return hold(`GitHub refused the merge: ${refused}`, "sort that out, or ask the user.");
+  return { ok: true, text: `Merged ${pull.url}, which closes #${n}.`, next: "call gam_claim for the next task.", data: { pull: pull.number, merged: true } };
+}
+
+export async function finish(ctx: Ctx, input: { issue?: number; evidence: string; met?: number[]; noCode?: boolean; merge?: boolean }): Promise<Result> {
   const s = await ctx.tracker.snapshot();
   const { task, claims } = await requireTask(ctx, s, input.issue);
   const n = task.issue.number;
@@ -574,6 +595,7 @@ export async function finish(ctx: Ctx, input: { issue?: number; evidence: string
   if (held) await ctx.tracker.updateComment(held.comment.id, claimBody(ctx.agent, held.branch, [...claimLog(held.comment.body), note]));
 
   if (task.pull?.state === "open") {
+    if (input.merge) return tryMerge(ctx, n, task.pull, task.pull.headRef);
     return { ok: true, text: `#${n} is in review: ${task.pull.url}`, next: "merging it closes the task. Otherwise call gam_claim for the next one.", data: { pull: task.pull.number } };
   }
 
@@ -586,6 +608,10 @@ export async function finish(ctx: Ctx, input: { issue?: number; evidence: string
     });
     const clash = await overlaps(ctx, s, branch);
     const warning = clash.length ? `\nWatch for merge conflicts: ${clash.join("; ")}.` : "";
+    if (input.merge) {
+      const held = await tryMerge(ctx, n, pull, branch);
+      return { ...held, text: held.text + warning };
+    }
     return { ok: true, text: `Opened ${pull.url} for #${n}.${warning}`, next: "merging it closes the task. Otherwise call gam_claim for the next one.", data: { pull: pull.number } };
   }
 

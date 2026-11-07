@@ -40,6 +40,7 @@ export interface Pull {
   mergedAt: string | null;
   draft: boolean;
   url: string;
+  createdAt: string;
 }
 
 export interface CommitRef {
@@ -69,6 +70,8 @@ export interface Snapshot {
 export interface Config {
   /** With required, an agent's new tasks wait for a person's approval, whatever the agent asks for. */
   approval: "auto" | "required";
+  /** Who may merge. With agent, gam_finish can merge a pull request once its checks pass. */
+  merge: "human" | "agent";
 }
 
 export interface Task {
@@ -121,6 +124,10 @@ export interface Tracker {
   deleteBranch(name: string): Promise<void>;
   compareBranch(name: string): Promise<{ ahead: number; lastCommitAt: string | null }>;
   createPull(pull: { title: string; body: string; head: string; draft?: boolean }): Promise<Pull>;
+  /** The checks on a branch's latest commit. */
+  branchChecks(name: string): Promise<{ pending: string[]; failed: string[]; total: number }>;
+  /** Merges and deletes the branch. Returns why not, if GitHub refuses. */
+  mergePull(number: number, branch: string): Promise<string | null>;
   /** Replaces the status image on a ref that branch lists and clones never show. */
   publishStatus(svg: string): Promise<void>;
   readConfig(): Promise<Config>;

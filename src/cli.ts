@@ -26,7 +26,7 @@ const HELP = `git-agent-manager ${VERSION}
   gam plan <file.json | ->                      create or extend the plan
   gam claim [issue] [--new title] [--takeover]  take a task
   gam update [issue] <note> [--unblock]         add a line of progress
-  gam finish [issue] --evidence text [--met 1,2] [--no-code]
+  gam finish [issue] --evidence text [--met 1,2] [--no-code] [--merge]
   gam block [issue] <reason>
   gam dashboard [--out file.html]               write the dashboard to a file and open it
   gam mcp                                       run the MCP server
@@ -108,6 +108,7 @@ async function main(): Promise<void> {
       evidence: { type: "string" },
       met: { type: "string" },
       "no-code": { type: "boolean" },
+      merge: { type: "boolean" },
       yes: { type: "boolean", short: "y" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
@@ -146,7 +147,7 @@ async function main(): Promise<void> {
       break;
     case "finish":
       if (!values.evidence) fail("gam finish needs --evidence.");
-      result = await finish(ctx, { issue: number, evidence: values.evidence, met: values.met?.split(",").map(Number), noCode: values["no-code"] });
+      result = await finish(ctx, { issue: number, evidence: values.evidence, met: values.met?.split(",").map(Number), noCode: values["no-code"], merge: values.merge });
       break;
     case "block":
       result = await block(ctx, { issue: number, reason: rest.join(" ") });

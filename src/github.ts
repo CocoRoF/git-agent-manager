@@ -201,6 +201,23 @@ export class GitHubTracker implements Tracker {
     return toPull(await this.call("POST", `${this.base}/pulls`, { ...pull, base }));
   }
 
+  async branchChecks(name: string): Promise<{ pending: string[]; failed: string[]; total: number }> {
+    const { check_runs: runs } = await this.call("GET", `${this.base}/commits/${encodeURIComponent(`heads/${name}`)}/check-runs?per_page=100`);
+    const ok = new Set(["success", "neutral", "skipped"]);
+    return {
+      total: runs.length,
+      pending: runs.filter((r: Json) => r.status !== "completed").map((r: Json) => r.name),
+      failed: runs.filter((r: Json) => r.status === "completed" && !ok.has(r.conclusion)).map((r: Json) => r.name),
+    };
+  }
+
+  async mergePull(number: number, branch: string): Promise<string | null> {
+    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash" });
+    if (status >= 400) return json?.message ?? `GitHub said ${status}`;
+    await this.deleteBranch(branch);
+    return null;
+  }
+
   async publishStatus(svg: string): Promise<void> {
     const blob = await this.call("POST", `${this.base}/git/blobs`, { content: svg, encoding: "utf-8" });
     const tree = await this.call("POST", `${this.base}/git/trees`, { tree: [{ path: "status.svg", mode: "100644", type: "blob", sha: blob.sha }] });

@@ -149,7 +149,7 @@ describe("trust", () => {
 
   it("does not treat a fork PR as work in review", async () => {
     const t = await planned();
-    t.pulls.push({ number: 5, title: "x", body: "Closes #1", headRef: "patch", headRepo: "stranger/r", state: "open", mergedAt: null, draft: false, url: "" });
+    t.pulls.push({ number: 5, title: "x", body: "Closes #1", headRef: "patch", headRepo: "stranger/r", state: "open", mergedAt: null, draft: false, url: "", createdAt: "" });
     assert.equal(((await claim(ctx(t), {})).data as { issue: number }).issue, 1);
   });
 });
@@ -263,7 +263,7 @@ describe("agendas", () => {
 describe("teams", () => {
   it("holds an agent's tasks for approval when the repo requires it", async () => {
     const t = new FakeTracker();
-    t.config = { approval: "required" };
+    t.config = { approval: "required", merge: "human" };
     await plan(ctx(t), { proposed: false, milestones: [{ title: "M", tasks: [{ title: "x" }] }] });
     assert.ok(t.issues[0]!.labels.includes("proposed"));
     await rejects(claim(ctx(t), {}), /Nothing/);
@@ -290,5 +290,61 @@ describe("teams", () => {
     t.files.set("task/2-b", ["src/app.ts", "README.md"]);
     const done = await finish(ctx(t, "y"), { issue: 2, evidence: "x" });
     assert.match(done.text, /merge conflicts: task\/1-a also changed src\/app\.ts/);
+  });
+});
+
+describe("merging", () => {
+  const T0 = Date.parse("2026-01-01T00:00:00Z");
+  async function submitted(merge: "human" | "agent") {
+    const t = new FakeTracker();
+    t.config = { approval: "auto", merge };
+    t.clock = () => new Date(T0);
+    await plan(ctx(t), { milestones: [{ title: "M", tasks: [{ title: "a" }] }] });
+    await claim(ctx(t), { issue: 1 });
+    t.branches.set("task/1-a", { ahead: 1, lastCommitAt: null });
+    return t;
+  }
+  const later = (ms: number) => ({ now: () => new Date(T0 + ms) });
+
+  it("is a person's job unless the repo says otherwise", async () => {
+    const t = await submitted("human");
+    const r = await finish({ ...ctx(t), ...later(600_000) }, { issue: 1, evidence: "x", merge: true });
+    assert.match(r.text, /doesn't let agents merge/);
+    assert.equal(t.pulls[0]!.mergedAt, null);
+  });
+
+  it("waits for checks to start, then for them to pass", async () => {
+    const t = await submitted("agent");
+    const first = await finish({ ...ctx(t), ...later(1000) }, { issue: 1, evidence: "x", merge: true });
+    assert.match(first.text, /may not have started/);
+    assert.equal(t.pulls.length, 1);
+
+    t.checks = { pending: ["ci"], failed: [], total: 1 };
+    assert.match((await finish({ ...ctx(t), ...later(2000) }, { issue: 1, evidence: "x", merge: true })).text, /still running: ci/);
+    t.checks = { pending: [], failed: ["ci"], total: 1 };
+    assert.match((await finish({ ...ctx(t), ...later(3000) }, { issue: 1, evidence: "x", merge: true })).text, /Failing checks: ci/);
+    assert.equal(t.pulls[0]!.mergedAt, null);
+    assert.equal(t.pulls.length, 1);
+
+    t.checks = { pending: [], failed: [], total: 1 };
+    const done = await finish({ ...ctx(t), ...later(4000) }, { issue: 1, evidence: "x", merge: true });
+    assert.match(done.text, /Merged/);
+    assert.equal(t.issues[0]!.state, "closed");
+    assert.equal(t.branches.has("task/1-a"), false);
+  });
+
+  it("merges a repo with no CI once there's been time for checks to appear", async () => {
+    const t = await submitted("agent");
+    await finish({ ...ctx(t), ...later(1000) }, { issue: 1, evidence: "x", merge: true });
+    assert.match((await finish({ ...ctx(t), ...later(120_000) }, { issue: 1, evidence: "x", merge: true })).text, /Merged/);
+  });
+
+  it("reports GitHub's refusal instead of claiming success", async () => {
+    const t = await submitted("agent");
+    t.mergeRefusal = "Merge conflict";
+    t.checks = { pending: [], failed: [], total: 1 };
+    const r = await finish({ ...ctx(t), ...later(1000) }, { issue: 1, evidence: "x", merge: true });
+    assert.match(r.text, /refused the merge: Merge conflict/);
+    assert.equal(t.issues[0]!.state, "open");
   });
 });
