@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { build } from "esbuild";
 
 const { version } = JSON.parse(readFileSync("package.json", "utf8"));
@@ -52,3 +52,4 @@ await build({
   banner: { js: "#!/usr/bin/env node\nimport{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
   legalComments: "none",
 });
+chmodSync("dist/cli.js", 0o755);
