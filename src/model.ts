@@ -6,6 +6,7 @@ export interface Milestone {
   description: string;
   state: "open" | "closed";
   dueOn: string | null;
+  createdAt: string;
   open: number;
   closed: number;
   url: string;
@@ -41,6 +42,14 @@ export interface Pull {
   url: string;
 }
 
+export interface CommitRef {
+  sha: string;
+  message: string;
+  url: string;
+  author: string;
+  bot: boolean;
+}
+
 export interface Snapshot {
   owner: string;
   repo: string;
@@ -51,6 +60,8 @@ export interface Snapshot {
   /** Branch names under task/. */
   branches: string[];
   pulls: Pull[];
+  /** Default-branch commits since the plan began, newest first. */
+  commits: CommitRef[];
 }
 
 export interface Task {

@@ -53,3 +53,14 @@ await build({
   legalComments: "none",
 });
 chmodSync("dist/cli.js", 0o755);
+
+await build({
+  entryPoints: ["src/action.ts"],
+  outfile: "dist/action.js",
+  bundle: true,
+  minify: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  legalComments: "none",
+});

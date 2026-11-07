@@ -1,0 +1,15 @@
+name: git-agent-manager
+description: Keep a repo's plan progress image up to date and check that pull requests are linked to a task.
+branding:
+  icon: check-square
+  color: blue
+inputs:
+  token:
+    description: Token with contents write access, to publish the status image.
+    default: ${{ github.token }}
+  mode:
+    description: warn shows a warning on a pull request with no task. strict fails the check.
+    default: warn
+runs:
+  using: node24
+  main: dist/action.js

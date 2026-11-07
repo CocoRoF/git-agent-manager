@@ -1,4 +1,4 @@
-import { countByState, currentMilestone, deriveTasks, isFinished, orderedMilestones, overallProgress, tasksIn } from "../derive.ts";
+import { auditCommits, countByState, currentMilestone, deriveTasks, isFinished, orderedMilestones, overallProgress, tasksIn } from "../derive.ts";
 import type { Milestone, Snapshot, Task, TaskState } from "../model.ts";
 import { ViewerError, fetchSnapshot, getToken, setToken } from "./api.ts";
 import { t } from "./i18n.ts";
@@ -178,6 +178,8 @@ function renderPlan(s: Snapshot, stamp: Date, reload: () => void): void {
   };
   paint();
 
+  const audit = auditCommits(s);
+  const onPlan = audit.checked ? Math.round(((audit.checked - audit.offPlan.length) / audit.checked) * 100) : null;
   const unplanned = tasks.filter((x) => x.unplanned);
   const unplannedDone = unplanned.filter((x) => x.issue.state === "closed").length;
 
@@ -210,6 +212,23 @@ function renderPlan(s: Snapshot, stamp: Date, reload: () => void): void {
             h("div", { class: "card col" }, h("div", { class: "none", style: "margin-bottom:10px" }, t.unplannedHint), ...[...unplanned].reverse().slice(0, 12).map(taskCard)),
           )
         : null,
+      onPlan === null
+        ? null
+        : h(
+            "section",
+            {},
+            h("h2", {}, `${t.adherence} · ${onPlan}%`),
+            h(
+              "div",
+              { class: "card col" },
+              h("div", { class: "none", style: audit.offPlan.length ? "margin-bottom:10px" : undefined }, t.adherenceHint(audit.checked, audit.offPlan.length)),
+              ...audit.offPlan.slice(0, 12).map((c) => {
+                const row = link(c.url, h("span", { class: "num" }, `${c.sha.slice(0, 7)} `), c.message.split("\n")[0] ?? "");
+                row.className = "task";
+                return row;
+              }),
+            ),
+          ),
       h("div", { class: "foot" }, link(SOURCE, "git-agent-manager")),
     ),
   );

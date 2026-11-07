@@ -1,4 +1,4 @@
-import type { Criterion, Issue, Milestone, Pull, Snapshot, Task, TaskState } from "./model.ts";
+import type { CommitRef, Criterion, Issue, Milestone, Pull, Snapshot, Task, TaskState } from "./model.ts";
 
 export const LABEL_BLOCKED = "blocked";
 export const LABEL_PROPOSED = "proposed";
@@ -146,4 +146,31 @@ export function overallProgress(milestones: Milestone[]): { done: number; total:
     total += m.open + m.closed;
   }
   return { done, total };
+}
+
+const PR_IN_MESSAGE = /\(#(\d+)\)\s*$|^Merge pull request #(\d+)/m;
+
+/** The task a pull request works on, if any. */
+export function pullTask(p: Pick<Pull, "headRef" | "body">): number | null {
+  return branchIssue(p.headRef) ?? closingIssues(p.body)[0] ?? null;
+}
+
+export interface Audit {
+  checked: number;
+  offPlan: CommitRef[];
+}
+
+/** Commits on the default branch that no task accounts for. Bots aren't agents following a plan, so they don't count. */
+export function auditCommits(s: Snapshot): Audit {
+  const commits = s.commits.filter((c) => !c.bot);
+  const offPlan = commits.filter((c) => {
+    if (closingIssues(c.message).length) return false;
+    const m = PR_IN_MESSAGE.exec(c.message.split("\n")[0] ?? "");
+    const number = Number(m?.[1] ?? m?.[2]);
+    if (!number) return true;
+    const pull = s.pulls.find((p) => p.number === number);
+    // A PR that has aged out of the list can't be judged, so give it the benefit of the doubt.
+    return pull ? pullTask(pull) === null : false;
+  });
+  return { checked: commits.length, offPlan };
 }
