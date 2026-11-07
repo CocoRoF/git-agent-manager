@@ -263,7 +263,7 @@ describe("agendas", () => {
 describe("teams", () => {
   it("holds an agent's tasks for approval when the repo requires it", async () => {
     const t = new FakeTracker();
-    t.config = { approval: "required" };
+    t.config = { approval: "required", merge: "human" };
     await plan(ctx(t), { proposed: false, milestones: [{ title: "M", tasks: [{ title: "x" }] }] });
     assert.ok(t.issues[0]!.labels.includes("proposed"));
     await rejects(claim(ctx(t), {}), /Nothing/);

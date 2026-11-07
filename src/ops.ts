@@ -437,9 +437,9 @@ async function holdTask(ctx: Ctx, task: Task, branch: string, log: string): Prom
     ok: true,
     text: [
       `You hold #${task.issue.number} ${task.issue.title}`,
-      ...(inFlight.length ? [`others are changing: ${inFlight.join("; ")}`] : []),
       `branch: ${branch}`,
       `get it: git fetch origin ${branch} && git switch ${branch}`,
+      ...(inFlight.length ? [`others are changing: ${inFlight.join("; ")}`] : []),
       criteria.length ? `done when:\n${criteria.map((c, i) => `  ${i + 1}. [${c.met ? "x" : " "}] ${c.text}`).join("\n")}` : "no done-when criteria are listed",
       ``,
       taskText(task.issue, comments),
