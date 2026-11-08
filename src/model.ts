@@ -45,6 +45,8 @@ export interface Pull {
 
 export interface CommitRef {
   sha: string;
+  /** Parent shas. A merge commit has two; its second parent's line is the merged branch. */
+  parents?: string[];
   message: string;
   url: string;
   author: string;

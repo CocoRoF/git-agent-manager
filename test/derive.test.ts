@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { auditCommits, branchIssue, branchName, closingIssues, milestoneAgenda, parseConfig, parseCriteria, tickCriteria } from "../src/derive.ts";
+import { auditCommits, mainLine, branchIssue, branchName, closingIssues, milestoneAgenda, parseConfig, parseCriteria, tickCriteria } from "../src/derive.ts";
 import type { CommitRef, Pull, Snapshot } from "../src/model.ts";
 import { parseRemote } from "../src/local.ts";
 
@@ -66,4 +66,18 @@ it("reads repo settings, defaulting to auto", () => {
 it("reads a milestone's agenda", () => {
   assert.equal(milestoneAgenda({ description: "Text\n\nAgenda: #12" }), 12);
   assert.equal(milestoneAgenda({ description: "see Agenda: #12 above" }), null);
+});
+
+it("judges merged branches by their merge commit", () => {
+  const c = (sha: string, message: string, parents: string[]): CommitRef => ({ sha, message, url: "", author: "a", bot: false, parents });
+  const commits = [
+    c("m2", "Add docs (#7)", ["m1", "b2"]),
+    c("b2", "write the docs", ["b1"]),
+    c("b1", "start docs", ["m1"]),
+    c("m1", "stray push", ["m0"]),
+    c("m0", "Start", []),
+  ];
+  assert.deepEqual(mainLine(commits).map((x) => x.sha), ["m2", "m1", "m0"]);
+  const s = { pulls: [{ number: 7, title: "", body: "", headRef: "task/3-docs", headRepo: "o/r", state: "closed", mergedAt: "x", draft: false, url: "", createdAt: "" }], commits } as unknown as Snapshot;
+  assert.deepEqual(auditCommits(s).offPlan.map((x) => x.sha), ["m1", "m0"]);
 });

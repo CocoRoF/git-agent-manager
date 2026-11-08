@@ -221,8 +221,11 @@ export class GitHubTracker implements Tracker {
 
   async mergePull(number: number, branch: string): Promise<string | null> {
     const pull = await this.call("GET", `${this.base}/pulls/${number}`);
-    // The PR number in the title is how the audit ties this commit back to a task.
-    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: "squash", commit_title: `${pull.title} (#${number})` });
+    // Squash makes the token's owner the author. A merge commit keeps each commit's author, which a
+    // platform running agents under one token wants (GAM_MERGE_METHOD=merge). The PR number in the
+    // title is how the audit ties the commit back to a task either way.
+    const method = process.env.GAM_MERGE_METHOD === "merge" ? "merge" : "squash";
+    const { status, json } = await this.request("PUT", `${this.base}/pulls/${number}/merge`, { merge_method: method, commit_title: `${pull.title} (#${number})` });
     if (status >= 400) return json?.message ?? `GitHub said ${status}`;
     await this.deleteBranch(branch);
     return null;

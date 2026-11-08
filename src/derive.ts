@@ -165,8 +165,25 @@ export interface Audit {
 }
 
 /** Commits on the default branch that no task accounts for. Bots aren't agents following a plan, so they don't count. */
+/**
+ * The default branch's own line: follow first parents from the newest commit. Commits that a merge
+ * commit brought in sit on its second parent's line, and the merge commit speaks for them.
+ */
+export function mainLine(commits: CommitRef[]): CommitRef[] {
+  if (!commits.length || commits.every((c) => !c.parents)) return commits;
+  const bySha = new Map(commits.map((c) => [c.sha, c]));
+  const out: CommitRef[] = [];
+  let at: CommitRef | undefined = commits[0];
+  while (at) {
+    out.push(at);
+    const next = at.parents?.[0];
+    at = next ? bySha.get(next) : undefined;
+  }
+  return out;
+}
+
 export function auditCommits(s: Snapshot): Audit {
-  const commits = s.commits.filter((c) => !c.bot);
+  const commits = mainLine(s.commits).filter((c) => !c.bot);
   const offPlan = commits.filter((c) => {
     if (closingIssues(c.message).length) return false;
     const m = PR_IN_MESSAGE.exec(c.message.split("\n")[0] ?? "");

@@ -117,6 +117,7 @@ Platforms that run agents for others, and decide for themselves who may do what,
 - `GAM_AGENT` names the agent, and `GAM_ROLE` steers it to `role:*` tasks.
 - `gam approve <issue>...` puts proposed tasks into play, for whoever your platform lets approve.
 - `GAM_ALLOW_MERGE=1` lets `gam finish --merge` merge for that call, whatever `.github/gam.yml` says. Set it only for agents your platform allows to merge.
+- `GAM_MERGE_METHOD=merge` merges with a merge commit instead of a squash, so each commit keeps its author. Useful when many agents share one token. The audit judges the default branch by its first-parent line, so merged branches count through their merge commit.
 
 ## Security
 
