@@ -142,8 +142,11 @@ export async function proposeRepoFiles(
   repo: { private: boolean; defaultBranch: string },
   dashboard: string | null,
   files: RepoFiles,
-): Promise<{ url: string; changed: string[] } | null> {
+): Promise<{ url: string; changed: string[]; open?: boolean } | null> {
   const branch = "git-agent-manager/connect";
+  // An earlier run's pull request is still waiting. Leave it as it is.
+  const waiting = await t.openPullFrom(branch);
+  if (waiting) return { url: waiting.url, changed: [], open: true };
   await t.branchFromDefault(branch);
   const changed: string[] = [];
   const put = async (path: string, next: (cur: string | null) => string | null, message: string) => {

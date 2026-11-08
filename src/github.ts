@@ -290,11 +290,18 @@ export class GitHubTracker implements Tracker {
     await this.call("PUT", `${this.base}/contents/${path}`, { message, content: Buffer.from(text, "utf8").toString("base64"), branch, sha });
   }
 
+  /** Starts the branch fresh from the default branch, replacing whatever an earlier attempt left there. */
   async branchFromDefault(name: string): Promise<string> {
     const repo = await this.call("GET", this.base);
     const head = await this.call("GET", `${this.base}/git/ref/heads/${repo.default_branch}`);
-    const { status, json } = await this.request("POST", `${this.base}/git/refs`, { ref: `refs/heads/${name}`, sha: head.object.sha });
-    if (status >= 400 && status !== 422) throw new GitHubError(status, `GitHub create branch ${name}: ${json?.message ?? status}`);
+    const created = await this.request("POST", `${this.base}/git/refs`, { ref: `refs/heads/${name}`, sha: head.object.sha });
+    if (created.status === 422) await this.call("PATCH", `${this.base}/git/refs/heads/${name}`, { sha: head.object.sha, force: true });
+    else if (created.status >= 400) throw new GitHubError(created.status, `GitHub create branch ${name}: ${created.json?.message ?? created.status}`);
     return repo.default_branch;
+  }
+
+  async openPullFrom(branch: string): Promise<Pull | null> {
+    const list = await this.call("GET", `${this.base}/pulls?state=open&head=${encodeURIComponent(`${this.owner}:${branch}`)}`);
+    return list.length ? toPull(list[0]) : null;
   }
 }
