@@ -149,6 +149,9 @@ export function overallProgress(milestones: Milestone[]): { done: number; total:
   return { done, total };
 }
 
+/** The branch connect opens its pull request from. Setting up the tool isn't work that needs a task. */
+export const CONNECT_BRANCH = "git-agent-manager/connect";
+
 const PR_IN_MESSAGE = /\(#(\d+)\)\s*$|^Merge pull request #(\d+)/m;
 
 /** The task a pull request works on, if any. */
@@ -171,7 +174,7 @@ export function auditCommits(s: Snapshot): Audit {
     if (!number) return true;
     const pull = s.pulls.find((p) => p.number === number);
     // A PR that has aged out of the list can't be judged, so give it the benefit of the doubt.
-    return pull ? pullTask(pull) === null : false;
+    return pull ? pullTask(pull) === null && pull.headRef !== CONNECT_BRANCH : false;
   });
   return { checked: commits.length, offPlan };
 }
