@@ -22,7 +22,6 @@ import {
 } from "./derive.ts";
 import type { Comment, Issue, Milestone, Pull, Snapshot, Task, Tracker } from "./model.ts";
 
-export const VIEWER = "https://cocorof.github.io/git-agent-manager/";
 /** After this long without a commit or a progress note, a claim counts as abandoned. */
 const STALE_MS = 2 * 3600 * 1000;
 const MAX_LOG_LINES = 20;
@@ -58,9 +57,6 @@ export function format(r: Result): string {
   return r.next ? `${r.text}\n\nnext: ${r.next}` : r.text;
 }
 
-function dashboardUrl(s: Snapshot): string {
-  return `${VIEWER}#/${s.owner}/${s.repo}`;
-}
 
 function brief(t: Task): string {
   return `#${t.issue.number} ${t.issue.title}`;
@@ -174,9 +170,10 @@ export async function status(ctx: Ctx): Promise<Result> {
     };
   }
 
-  const claims = await activeClaims(ctx, tasks);
+  const [claims, config] = await Promise.all([activeClaims(ctx, tasks), ctx.tracker.readConfig()]);
   const { done, total } = overallProgress(s.milestones);
-  const lines = [`${repo}: ${done}/${total} tasks done across ${s.milestones.length} milestone(s)`, `dashboard: ${dashboardUrl(s)}${s.private ? " (private repo: needs a token there, or run `gam dashboard` for a local file)" : ""}`];
+  const dashboard = config.dashboard ?? "run `gam dashboard` for a local file";
+  const lines = [`${repo}: ${done}/${total} tasks done across ${s.milestones.length} milestone(s)`, `dashboard: ${dashboard}`];
   const current = currentMilestone(s);
   const finished = open.filter(isFinished);
 
@@ -236,7 +233,7 @@ export async function status(ctx: Ctx): Promise<Result> {
       planned: true,
       done,
       total,
-      dashboard: dashboardUrl(s),
+      dashboard: config.dashboard,
       current: current?.number ?? null,
       mine: mine.map((t) => t.issue.number),
       ready: ready.map((t) => t.issue.number),

@@ -1,147 +1,21 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { GitHubTracker } from "./github.ts";
-import { VIEWER } from "./ops.ts";
+import type { GitHubTracker } from "./github.ts";
 
 export const START = "<!-- gam:start -->";
 export const END = "<!-- gam:end -->";
-/** Until there is an npm release, install straight from GitHub. */
-export const COMMAND = ["npx", "-y", "github:CocoRoF/git-agent-manager", "mcp"];
-
-function has(cmd: string): boolean {
-  return spawnSync(cmd, ["--version"], { stdio: "ignore", timeout: 15_000 }).status === 0;
-}
-
-function viaCli(cmd: string, addArgs: string[]): "added" | "already" | "failed" {
-  if (spawnSync(cmd, ["mcp", "get", "gam"], { stdio: "ignore", timeout: 15_000 }).status === 0) return "already";
-  return spawnSync(cmd, addArgs, { stdio: "ignore", timeout: 30_000 }).status === 0 ? "added" : "failed";
-}
-
-function viaJson(path: string): "added" | "already" | "failed" {
-  try {
-    const config = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
-    if (config.mcpServers?.gam) return "already";
-    config.mcpServers = { ...config.mcpServers, gam: { command: COMMAND[0], args: COMMAND.slice(1) } };
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
-    return "added";
-  } catch {
-    // A config we can't parse is the user's. Leave it alone.
-    return "failed";
-  }
-}
-
-/** For agents that read instruction files but not MCP's instructions. It applies to every repo, so it has to be safe with no plan. */
-export const GLOBAL_POINTER = `${START}
-Before starting work in a git repo, call \`gam_status\` once. If it reports a plan, do the work through \`gam_claim\`, \`gam_update\` and \`gam_finish\`, one task at a time, and follow the \`next:\` line in each result. For a small job outside the plan, call \`gam_claim\` with \`new\` before changing anything. If there's no plan, carry on as usual.
-${END}`;
-
-/** Replaces our block in an instruction file, or adds it at the end. */
-export function withPointer(text: string, pointer: string): string {
-  const a = text.indexOf(START);
-  const b = text.indexOf(END);
-  if (a !== -1 && b > a) return text.slice(0, a) + pointer + text.slice(b + END.length);
-  return text.trim() ? `${text.trimEnd()}\n\n${pointer}\n` : `${pointer}\n`;
-}
-
-function viaInstructions(path: string): "added" | "already" | "failed" {
-  try {
-    const cur = existsSync(path) ? readFileSync(path, "utf8") : "";
-    const next = withPointer(cur, GLOBAL_POINTER);
-    if (next === cur) return "already";
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, next);
-    return "added";
-  } catch {
-    return "failed";
-  }
-}
-
-export interface AgentResult {
-  agent: string;
-  result: "added" | "already" | "failed";
-}
-
-/** Registers with every agent on this machine at user level, so each repo needs no setup of its own. */
-export function connectAgents(home = homedir()): AgentResult[] {
-  const out: AgentResult[] = [];
-  if (has("claude")) {
-    out.push({ agent: "Claude Code", result: viaCli("claude", ["mcp", "add", "--scope", "user", "gam", "--", ...COMMAND]) });
-    out.push({ agent: "Claude Code hooks", result: installHooks(home) });
-  }
-  if (has("codex")) {
-    out.push({ agent: "Codex", result: viaCli("codex", ["mcp", "add", "gam", "--", ...COMMAND]) });
-    // Measured: without this, Codex almost never calls the tools. See docs/BENCHMARK.md.
-    out.push({ agent: "Codex instructions", result: viaInstructions(join(process.env.CODEX_HOME || join(home, ".codex"), "AGENTS.md")) });
-  }
-  if (existsSync(join(home, ".cursor"))) out.push({ agent: "Cursor", result: viaJson(join(home, ".cursor", "mcp.json")) });
-  if (existsSync(join(home, ".gemini"))) {
-    out.push({ agent: "Gemini", result: viaJson(join(home, ".gemini", "settings.json")) });
-    out.push({ agent: "Gemini instructions", result: viaInstructions(join(home, ".gemini", "GEMINI.md")) });
-  }
-  return out;
-}
+export const COMMAND = ["npx", "-y", "git-agent-manager", "mcp"];
 
 export function statusImage(owner: string, repo: string): string {
   return `https://raw.githubusercontent.com/${owner}/${repo}/refs/gam/status/status.svg`;
 }
 
-export function readmeBlock(owner: string, repo: string, isPrivate: boolean): string {
-  const view = `${VIEWER}#/${owner}/${repo}`;
-  const plan = `https://github.com/${owner}/${repo}/milestones`;
+export function readmeBlock(owner: string, repo: string, isPrivate: boolean, dashboard: string | null): string {
+  const target = dashboard ?? `https://github.com/${owner}/${repo}/milestones`;
   // An anonymous image request can't read a private repo, so those get links only.
   const lines = isPrivate
-    ? [`**Plan:** [dashboard](${view}) · [milestones](${plan})`]
-    : [`[![Plan progress](${statusImage(owner, repo)})](${view})`];
+    ? [`**Plan:** ${dashboard ? `[dashboard](${dashboard}) · ` : ""}[milestones](https://github.com/${owner}/${repo}/milestones)`]
+    : [`[![Plan progress](${statusImage(owner, repo)})](${target})`];
   return [START, ...lines, END].join("\n");
-}
-
-/** Adds our hooks to Claude Code's settings. Returns null when there's nothing to change. */
-export function withHooks(settings: any, command: string): any | null {
-  const events: [string, string][] = [["SessionStart", "session-start"], ["Stop", "stop"]];
-  const next = structuredClone(settings);
-  next.hooks ??= {};
-  let changed = false;
-  for (const [event, name] of events) {
-    const list: any[] = (next.hooks[event] ??= []);
-    const mine = list.flatMap((g) => g.hooks ?? []).find((h: any) => /git-agent-manager/.test(h.command ?? "") && h.command.endsWith(`hook ${name}`));
-    const wanted = `${command} hook ${name}`;
-    if (mine?.command === wanted) continue;
-    if (mine) mine.command = wanted;
-    else list.push({ hooks: [{ type: "command", command: wanted, timeout: 15 }] });
-    changed = true;
-  }
-  return changed ? next : null;
-}
-
-/**
- * Hooks run at every turn, and npx costs seconds each time, so they use a local copy of this
- * program. Running connect again refreshes it.
- */
-function installHooks(home: string): "added" | "already" | "failed" {
-  const script = process.argv[1];
-  if (!script) return "failed";
-  try {
-    const dir = process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, "git-agent-manager") : join(home, ".local", "share", "git-agent-manager");
-    mkdirSync(dir, { recursive: true });
-    const copy = join(dir, "cli.js");
-    copyFileSync(script, copy);
-    chmodSync(copy, 0o755);
-    writeFileSync(join(dir, "package.json"), '{"type":"module"}\n');
-
-    const path = join(process.env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings.json");
-    const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
-    const next = withHooks(settings, `node "${copy}"`);
-    if (!next) return "already";
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
-    return "added";
-  } catch {
-    // Settings we can't parse are the user's. Leave them alone.
-    return "failed";
-  }
 }
 
 /** Replaces the existing block, or puts a new one right after the title. */
@@ -157,74 +31,160 @@ export function withBlock(readme: string, block: string): string {
 }
 
 export const POINTER = `${START}
-This repo plans its work with git-agent-manager. Call \`gam_status\` before starting, and do the work through \`gam_claim\`, \`gam_update\` and \`gam_finish\`. Without those tools, run \`npx -y github:CocoRoF/git-agent-manager status\`.
+This repo plans its work with git-agent-manager. Call \`gam_status\` before starting, then do the work through \`gam_claim\`, \`gam_update\` and \`gam_finish\`, one task at a time, following the \`next:\` line in each result. For a small job outside the plan, call \`gam_claim\` with \`new\` before changing anything. Without those tools, run \`npx -y git-agent-manager status\`.
 ${END}`;
 
-export const WORKFLOW = `name: Plan
-on:
+/** Project-level MCP config for Claude Code, keeping the repo's other servers. */
+export function withMcpJson(text: string | null): string | null {
+  const config = text ? JSON.parse(text) : {};
+  if (config.mcpServers?.gam) return null;
+  config.mcpServers = { ...config.mcpServers, gam: { command: COMMAND[0], args: COMMAND.slice(1) } };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+/** Project-level MCP config for Codex. Appends a table rather than parsing TOML. */
+export function withCodexToml(text: string | null): string | null {
+  if (text && /^\[mcp_servers\.gam\]/m.test(text)) return null;
+  const table = `[mcp_servers.gam]\ncommand = "${COMMAND[0]}"\nargs = [${COMMAND.slice(1).map((a) => `"${a}"`).join(", ")}]\n`;
+  return text?.trim() ? `${text.trimEnd()}\n\n${table}` : table;
+}
+
+/** Points links at the repo's own dashboard. Keeps every other setting. */
+export function withDashboard(text: string | null, url: string): string | null {
+  const line = `dashboard: ${url}`;
+  if (!text?.trim()) return `${line}\n`;
+  if (/^dashboard:/m.test(text)) return text.replace(/^dashboard:.*$/m, line) === text ? null : text.replace(/^dashboard:.*$/m, line);
+  return `${text.trimEnd()}\n${line}\n`;
+}
+
+/** The repo's workflow. With a dashboard, a push to the default branch also deploys it to the repo's own Pages. */
+export function workflow(defaultBranch: string, dashboard: boolean): string {
+  const events = `on:
   issues:
     types: [opened, closed, reopened, milestoned, demilestoned, labeled, unlabeled]
   milestone:
     types: [created, edited, closed, opened, deleted]
   pull_request:
-    types: [opened, edited, reopened, closed, synchronize]
+    types: [opened, edited, reopened, closed, synchronize]${
+      dashboard
+        ? `
+  push:
+    branches: [${JSON.stringify(defaultBranch)}]
+  workflow_dispatch:`
+        : ""
+    }`;
+  const plan = `  plan:${dashboard ? `\n    if: github.event_name != 'push' && github.event_name != 'workflow_dispatch'` : ""}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: CocoRoF/git-agent-manager@v0`;
+  const site = `
+  dashboard:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: \${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: CocoRoF/git-agent-manager@v0
+        with:
+          site: _site
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4`;
+  return `name: Plan
+${events}
 permissions:
   contents: write
   issues: read
   pull-requests: read
 concurrency:
-  group: gam-\${{ github.event.pull_request.number || 'status' }}
+  group: gam-\${{ github.event.pull_request.number || github.event_name }}
   cancel-in-progress: true
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: CocoRoF/git-agent-manager@v0
+${plan}${dashboard ? site : ""}
 `;
+}
+
+export type PagesResult = { url: string } | { reason: string };
+
+/**
+ * Sets up the repo's own GitHub Pages for the dashboard, unless the repo already uses Pages
+ * for something else. A repo has only one Pages site, and it isn't ours to take.
+ */
+export async function setUpPages(t: GitHubTracker): Promise<PagesResult> {
+  const pages = await t.getPages();
+  if (pages && pages.buildType !== "workflow") return { reason: "this repo's GitHub Pages already serves a site from a branch" };
+  if (pages) {
+    const other = (await t.listWorkflows()).filter((w) => w.path !== ".github/workflows/gam.yml" && /deploy-pages/.test(w.text));
+    if (other.length) return { reason: `this repo's GitHub Pages already serves a site, from ${other.map((w) => w.path).join(", ")}` };
+    return { url: pages.url };
+  }
+  const created = await t.enablePages();
+  return created ? { url: created } : { reason: "GitHub didn't let this login turn on Pages. That takes admin access, and a paid plan for private repos" };
+}
 
 export interface RepoFiles {
   readme: boolean;
   workflow: boolean;
-  pointer: boolean;
+  /** .mcp.json, .codex/config.toml and the AGENTS.md pointer, so every agent working in the repo is connected. */
+  agents: boolean;
 }
 
-/** Proposes the optional repo files as one PR, without touching the local checkout. */
-export async function proposeRepoFiles(t: GitHubTracker, isPrivate: boolean, files: RepoFiles): Promise<string | null> {
+/** Proposes the repo's files as one PR, without touching the local checkout. */
+export async function proposeRepoFiles(
+  t: GitHubTracker,
+  repo: { private: boolean; defaultBranch: string },
+  dashboard: string | null,
+  files: RepoFiles,
+): Promise<{ url: string; changed: string[] } | null> {
   const branch = "git-agent-manager/connect";
-  const base = await t.branchFromDefault(branch);
-  let changed = false;
-  if (files.readme) {
-    const cur = await t.readFile(`README.md`);
-    const next = withBlock(cur?.text ?? `# ${t.repo}\n`, readmeBlock(t.owner, t.repo, isPrivate));
-    if (next !== cur?.text) {
-      await t.writeFile("README.md", next, branch, "Show plan progress in the README", cur?.sha);
-      changed = true;
-    }
+  await t.branchFromDefault(branch);
+  const changed: string[] = [];
+  const put = async (path: string, next: (cur: string | null) => string | null, message: string) => {
+    const cur = await t.readFile(path, branch);
+    const text = next(cur?.text ?? null);
+    if (text === null || text === cur?.text) return;
+    await t.writeFile(path, text, branch, message, cur?.sha);
+    changed.push(path);
+  };
+  if (files.agents) {
+    await put(".mcp.json", withMcpJson, "Connect Claude Code to the plan");
+    await put(".codex/config.toml", withCodexToml, "Connect Codex to the plan");
+    await put("AGENTS.md", (cur) => withBlock(cur ?? "# Agents\n", POINTER), "Point agents at the plan");
   }
-  if (files.pointer) {
-    const cur = await t.readFile("AGENTS.md");
-    const next = withBlock(cur?.text ?? "# Agents\n", POINTER);
-    if (next !== cur?.text) {
-      await t.writeFile("AGENTS.md", next, branch, "Point agents at the plan", cur?.sha);
-      changed = true;
-    }
+  if (dashboard) await put(".github/gam.yml", (cur) => withDashboard(cur, dashboard), "Point plan links at this repo's dashboard");
+  if (files.readme) await put("README.md", (cur) => withBlock(cur ?? `# ${t.repo}\n`, readmeBlock(t.owner, t.repo, repo.private, dashboard)), "Show plan progress in the README");
+  // Actions minutes cost money on private repos, and their image can't be shown anyway.
+  if (files.workflow && !repo.private) {
+    await put(".github/workflows/gam.yml", (cur) => (cur && cur.includes("CocoRoF/git-agent-manager@") && (!dashboard || cur.includes("site:")) ? null : workflow(repo.defaultBranch, !!dashboard)), "Keep plan progress up to date");
   }
-  if (files.workflow && !isPrivate) {
-    const path = ".github/workflows/gam.yml";
-    const cur = await t.readFile(path);
-    if (!cur) {
-      await t.writeFile(path, WORKFLOW, branch, "Keep plan progress up to date on merge", undefined);
-      changed = true;
-    }
-  }
-  if (!changed) {
+  if (!changed.length) {
     await t.deleteBranch(branch);
     return null;
   }
   const pull = await t.createPull({
     title: "Connect git-agent-manager",
     head: branch,
-    body: `Adds plan progress to this repo. All of it is optional, and nothing else in the repo changes.\n\nThe plan itself lives in this repo's [Milestones](https://github.com/${t.owner}/${t.repo}/milestones) and Issues.\n\n<sub>Base: ${base}</sub>`,
+    body: [
+      `Connects this repo to its plan. Agents that work here plan and track their work in this repo's [Milestones](https://github.com/${t.owner}/${t.repo}/milestones) and Issues.`,
+      ...(dashboard ? ["", `The dashboard is served from this repo's own GitHub Pages: ${dashboard}`] : []),
+      "",
+      ...changed.map((f) => `- \`${f}\``),
+    ].join("\n"),
   });
-  return pull.url;
+  return { url: pull.url, changed };
+}
+
+/** Registers the MCP server for this clone only, so Claude Code works here before the PR lands. */
+export function connectLocal(root: string): "added" | "already" | "missing" | "failed" {
+  if (spawnSync("claude", ["--version"], { stdio: "ignore", timeout: 15_000 }).status !== 0) return "missing";
+  if (spawnSync("claude", ["mcp", "get", "gam"], { cwd: root, stdio: "ignore", timeout: 15_000 }).status === 0) return "already";
+  const r = spawnSync("claude", ["mcp", "add", "--scope", "local", "gam", "--", ...COMMAND], { cwd: root, stdio: "ignore", timeout: 30_000 });
+  return r.status === 0 ? "added" : "failed";
 }

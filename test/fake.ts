@@ -125,7 +125,7 @@ export class FakeTracker implements Tracker {
   }
 
   published: string[] = [];
-  config: Config = { approval: "auto", merge: "human" };
+  config: Config = { approval: "auto", merge: "human", dashboard: null };
   clock?: () => Date;
   checks = { pending: [] as string[], failed: [] as string[], total: 0 };
   mergeRefusal: string | null = null;

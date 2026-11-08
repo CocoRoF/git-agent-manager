@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { END, GLOBAL_POINTER, START, readmeBlock, withBlock, withHooks, withPointer } from "../src/connect.ts";
+import { END, POINTER, START, readmeBlock, withBlock, withCodexToml, withDashboard, withMcpJson, workflow } from "../src/connect.ts";
+import { parseConfig } from "../src/derive.ts";
 import { workOutsideTask } from "../src/hooks.ts";
 
-const block = readmeBlock("o", "r", false);
+const own = "https://o.github.io/r/";
+const block = readmeBlock("o", "r", false, own);
 
 it("puts the block after the title with blank lines around it", () => {
   assert.equal(withBlock("# Title\nText", block), `# Title\n\n${block}\n\nText`);
@@ -16,31 +18,54 @@ it("replaces its own block and changes nothing else", () => {
   assert.equal(withBlock(once, block), once);
   const changed = withBlock(once, `${START}\nnew\n${END}`);
   assert.match(changed, /new/);
-  assert.doesNotMatch(changed, /raw\.githubusercontent/);
   assert.match(changed, /Body/);
 });
 
+it("links the card to the repo's own dashboard, never to someone else's site", () => {
+  assert.match(block, /\]\(https:\/\/o\.github\.io\/r\/\)/);
+  assert.doesNotMatch(block, /cocorof/i);
+  assert.match(readmeBlock("o", "r", false, null), /github\.com\/o\/r\/milestones/);
+});
+
 it("links only in a private repo, where an image can't load", () => {
-  assert.doesNotMatch(readmeBlock("o", "r", true), /raw\.githubusercontent/);
-  assert.match(readmeBlock("o", "r", true), /#\/o\/r/);
+  assert.doesNotMatch(readmeBlock("o", "r", true, null), /raw\.githubusercontent/);
+  assert.match(readmeBlock("o", "r", true, "https://plan.example.com/"), /plan\.example\.com/);
 });
 
-const cmd = 'node "/x/git-agent-manager/cli.js"';
-
-it("adds hooks next to the user's own, once", () => {
-  const theirs = { theme: "dark", hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } };
-  const next = withHooks(theirs, cmd);
-  assert.equal(next.theme, "dark");
-  assert.equal(next.hooks.Stop.length, 2);
-  assert.equal(next.hooks.Stop[0].hooks[0].command, "say done");
-  assert.equal(next.hooks.SessionStart[0].hooks[0].command, `${cmd} hook session-start`);
-  assert.equal(withHooks(next, cmd), null);
+it("adds itself to .mcp.json next to the repo's servers, once", () => {
+  const next = JSON.parse(withMcpJson(JSON.stringify({ mcpServers: { other: { command: "x" } } }))!);
+  assert.deepEqual(Object.keys(next.mcpServers), ["other", "gam"]);
+  assert.deepEqual(next.mcpServers.gam.args, ["-y", "git-agent-manager", "mcp"]);
+  assert.equal(withMcpJson(JSON.stringify(next)), null);
 });
 
-it("moves its hooks when the program moves", () => {
-  const next = withHooks(withHooks({}, cmd), 'node "/y/git-agent-manager/cli.js"');
-  assert.equal(next.hooks.Stop.length, 1);
-  assert.match(next.hooks.Stop[0].hooks[0].command, /\/y\//);
+it("appends a Codex table and keeps the rest of the file", () => {
+  const next = withCodexToml('model = "x"\n')!;
+  assert.match(next, /^model = "x"\n\n\[mcp_servers\.gam\]\ncommand = "npx"\nargs = \["-y", "git-agent-manager", "mcp"\]\n$/);
+  assert.equal(withCodexToml(next), null);
+});
+
+it("tells agents how to handle small jobs in AGENTS.md", () => {
+  const next = withBlock("# Agents\n\nBe terse.\n", POINTER);
+  assert.match(next, /Be terse/);
+  assert.match(next, /`gam_claim` with `new`/);
+});
+
+it("records the dashboard address in the settings, keeping the rest", () => {
+  assert.equal(withDashboard(null, own), `dashboard: ${own}\n`);
+  const next = withDashboard("merge: agent\n", own)!;
+  assert.equal(next, `merge: agent\ndashboard: ${own}\n`);
+  assert.equal(withDashboard(next, own), null);
+  assert.equal(parseConfig(next).dashboard, own);
+  assert.equal(parseConfig("dashboard: http://insecure.example").dashboard, null);
+});
+
+it("deploys the dashboard only from the default branch", () => {
+  const w = workflow("trunk", true);
+  assert.match(w, /push:\n    branches: \["trunk"\]/);
+  assert.match(w, /site: _site/);
+  assert.match(w, /actions\/deploy-pages@v4/);
+  assert.doesNotMatch(workflow("trunk", false), /deploy-pages|push:/);
 });
 
 it("only nudges about work with no task behind it", () => {
@@ -49,12 +74,4 @@ it("only nudges about work with no task behind it", () => {
   assert.equal(workOutsideTask("main", "", ""), false);
   assert.equal(workOutsideTask("task/4-x", " M a.ts", "2"), false);
   assert.equal(workOutsideTask(null, " M a.ts", ""), true);
-});
-
-it("keeps the user's own instructions around its pointer", () => {
-  assert.equal(withPointer("", GLOBAL_POINTER), `${GLOBAL_POINTER}\n`);
-  const once = withPointer("# Mine\nBe terse.\n", GLOBAL_POINTER);
-  assert.match(once, /^# Mine\nBe terse\.\n\n<!-- gam:start -->/);
-  assert.equal(withPointer(once, GLOBAL_POINTER), once);
-  assert.match(withPointer(`${START}\nold\n${END}\nAfter`, GLOBAL_POINTER), /gam_status[\s\S]*After/);
 });

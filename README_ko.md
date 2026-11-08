@@ -1,7 +1,7 @@
 # git-agent-manager
 
 <!-- gam:start -->
-[![계획 진행도](https://raw.githubusercontent.com/CocoRoF/git-agent-manager/refs/gam/status/status.svg)](https://cocorof.github.io/git-agent-manager/#/CocoRoF/git-agent-manager)
+[![계획 진행도](https://raw.githubusercontent.com/CocoRoF/git-agent-manager/refs/gam/status/status.svg)](https://cocorof.github.io/git-agent-manager/)
 <!-- gam:end -->
 
 한 번 연결하면, 저장소에서 일하는 코딩 에이전트가 마일스톤 계획을 따르고 진행 상황이 대시보드에 저절로 나타납니다.
@@ -17,22 +17,29 @@
 
 ## 시작하기
 
-GitHub 저장소 폴더에서 (Node 20 이상):
+GitHub 저장소 폴더 안에서 (Node 20 이상):
 
 ```bash
-npx github:CocoRoF/git-agent-manager
+npx git-agent-manager
 ```
 
-이것으로 끝입니다. 이 명령은
+한 번에 저장소 하나만 연결하고, 저장소 폴더가 아니면 실행되지 않습니다. 이 명령은
 
-1. Claude Code, Codex, Cursor, Gemini 가 있으면 연결합니다. 기계 단위라서 이후 모든 저장소에서 동작합니다.
-2. 이미 있는 GitHub 로그인을 씁니다 (`GITHUB_TOKEN`, `gh`, git 자격 증명).
-3. Codex 와 Gemini 의 전역 안내 파일에 짧은 블록을, Claude Code 에 작은 훅 둘을 추가합니다. 저장소는 건드리지 않고, 그 파일에 쓰신 내용도 그대로 둡니다.
-4. README 진행도 카드와 카드를 최신으로 유지하는 작은 워크플로를 PR 로 제안합니다. 거절해도 됩니다.
+1. 이미 있는 GitHub 로그인을 쓰고 (`GITHUB_TOKEN`, `gh`, git 자격 증명), 저장소에 쓸 권한이 있는지 확인합니다.
+2. 이 폴더의 Claude Code 를 바로 연결합니다.
+3. 저장소에서 일하는 모든 에이전트를 연결하는 PR 을 하나 엽니다. Claude Code 용 `.mcp.json`, Codex 용 `.codex/config.toml`, Codex·Cursor 등이 읽는 `AGENTS.md` 안내, README 진행도 카드, 그리고 대시보드를 **그 저장소의 GitHub Pages** 에 올리는 워크플로입니다.
 
 그다음에는 에이전트에게 원하는 것을 말하면 됩니다.
 
 > 이 저장소에 결제 시스템을 넣는 계획을 세우고 시작해 줘.
+
+## 대시보드
+
+대시보드는 저장소마다 자기 것입니다. 그 저장소의 GitHub Pages (`https://<owner>.github.io/<repo>/`) 나, Pages 설정에 연결한 자기 도메인에서 열리고, 그 저장소만 보여 줍니다.
+
+- 저장소가 이미 다른 용도로 Pages 를 쓰고 있으면 건드리지 않습니다. `gam site <폴더>` 로 만들어 원하는 곳에 올리고 `.github/gam.yml` 에 `dashboard: <주소>` 를 적으면 됩니다.
+- `gam site <폴더> --repos 나/a,나/b` 로 여러 저장소를 한 페이지에 모아 자기 도메인에 올릴 수 있습니다.
+- 비공개 저장소는 공개 대시보드를 만들지 않습니다. `gam dashboard` 로 로컬 HTML 파일을 만들거나, `gam site` 결과를 나만 볼 수 있는 곳에 올리세요.
 
 ## 안건
 
@@ -49,8 +56,9 @@ gam agenda "경쟁사 3곳을 분석해서 다음 분기 가격 전략을 제안
 전부 선택 사항이고 `.github/gam.yml` 에 씁니다.
 
 ```yaml
-approval: required  # 에이전트가 만든 작업은 사람이 "proposed" 라벨을 뗄 때까지 대기
-merge: agent        # 검사를 통과하면 gam_finish 가 PR 을 병합할 수 있음
+approval: required                      # 에이전트가 만든 작업은 사람이 "proposed" 라벨을 뗄 때까지 대기
+merge: agent                            # 검사를 통과하면 gam_finish 가 PR 을 병합할 수 있음
+dashboard: https://plan.example.com/    # 대시보드 링크가 가리킬 주소
 ```
 
 자세한 내용은 [영문 README](README.md) 를 보세요. 설계는 [docs/PLAN.md](docs/PLAN.md) 에 있습니다.

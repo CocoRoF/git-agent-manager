@@ -1,17 +1,17 @@
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
-import { connectAgents, proposeRepoFiles } from "./connect.ts";
-import { dashboardHtml } from "./dashboard.ts";
+import { connectLocal, proposeRepoFiles, setUpPages } from "./connect.ts";
+import { dashboardHtml, siteHtml } from "./dashboard.ts";
 import { GitHubTracker } from "./github.ts";
 import { runHook } from "./hooks.ts";
-import { currentBranch, detectRepo, findToken } from "./local.ts";
+import { currentBranch, detectRepo, findToken, repoRoot } from "./local.ts";
 import { parseSlug, serveMcp, toPlan } from "./mcp.ts";
 import { refreshStatus } from "./svg.ts";
-import { OpError, VIEWER, agenda, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
+import { OpError, agenda, block, claim, finish, format, plan, status, update, type Ctx, type Result } from "./ops.ts";
 
 declare const __VERSION__: string;
 declare const __VIEWER_HTML__: string;
@@ -19,7 +19,7 @@ const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
 
 const HELP = `git-agent-manager ${VERSION}
 
-  npx github:CocoRoF/git-agent-manager          connect your agents and this repo
+  npx git-agent-manager                         connect the repo in this folder
 
   gam status                                    where the plan stands
   gam agenda <text>                             hand agents a goal to plan and carry out
@@ -29,6 +29,7 @@ const HELP = `git-agent-manager ${VERSION}
   gam finish [issue] --evidence text [--met 1,2] [--no-code] [--merge]
   gam block [issue] <reason>
   gam dashboard [--out file.html]               write the dashboard to a file and open it
+  gam site <folder> [--repos a/b,c/d]           a dashboard to host on your own domain
   gam mcp                                       run the MCP server
 
   --repo owner/name   use this repo instead of the current folder's origin
@@ -44,7 +45,7 @@ function fail(message: string): never {
 
 function tracker(slug?: string): GitHubTracker {
   const found = slug ? parseSlug(slug) : detectRepo();
-  if (!found) fail("This folder has no GitHub origin remote. Pass --repo owner/name.");
+  if (!found) fail(repoRoot() ? "This repo has no GitHub origin remote." : "This isn't a git repo. Run gam inside a GitHub repo's folder.");
   const token = findToken();
   if (!token) fail("No GitHub login found. Run `gh auth login`, or set GITHUB_TOKEN.");
   return new GitHubTracker(found.owner, found.repo, token);
@@ -58,29 +59,55 @@ async function ask(question: string): Promise<boolean> {
   return answer === "" || answer === "y" || answer === "yes";
 }
 
-async function connect(values: { repo?: string; yes?: boolean; "agents-md"?: boolean }): Promise<void> {
-  const agents = connectAgents();
-  if (!agents.length) console.log("No agents found on this machine. Add this MCP server to yours:\n  npx -y github:CocoRoF/git-agent-manager mcp");
-  for (const a of agents) {
-    const word = { added: "connected", already: "already connected", failed: "could not connect" }[a.result];
-    console.log(`${a.result === "failed" ? "✗" : "✓"} ${a.agent}: ${word}`);
-  }
+async function connect(values: { yes?: boolean; repo?: string }): Promise<void> {
+  if (values.repo) fail("connect works on the repo in the current folder. Run it inside that repo, without --repo.");
+  const root = repoRoot();
+  if (!root) fail("This isn't a git repo. git-agent-manager connects one repo at a time, so run this inside the repo's folder.");
+  const found = detectRepo(root);
+  if (!found) fail("This repo has no GitHub origin remote. git-agent-manager works with repos on GitHub.");
+  const token = findToken();
+  if (!token) fail("No GitHub login found. Run `gh auth login`, or set GITHUB_TOKEN, then run this again.");
+  const t = new GitHubTracker(found.owner, found.repo, token);
+  const slug = `${found.owner}/${found.repo}`;
+  const s = await t.snapshot().catch((e: Error) => fail(`Couldn't read ${slug} on GitHub: ${e.message}`));
+  if (!(await t.canWrite())) fail(`Your GitHub login can't write to ${slug}, so agents couldn't record their work there.`);
 
-  const found = values.repo ? parseSlug(values.repo) : detectRepo();
-  if (!found) {
-    console.log("\nDone. Your agents can now plan in any GitHub repo.");
+  console.log(`${slug}: ${s.milestones.length ? `${s.milestones.length} milestone(s), the plan is live.` : "no plan yet. Ask your agent to make one."}`);
+  const local = connectLocal(root);
+  if (local === "added") console.log("✓ Claude Code: connected in this folder");
+  else if (local === "already") console.log("✓ Claude Code: already connected in this folder");
+  else if (local === "failed") console.log("✗ Claude Code: couldn't connect here. The pull request below connects it too.");
+
+  if (!values.yes && !(await ask("\nSet up this repo: connect every agent that works in it, and serve its dashboard from the repo's own GitHub Pages? This opens a pull request."))) {
+    console.log("\nNothing changed in the repo. Run `gam dashboard` for a local dashboard.");
     return;
   }
-  const token = findToken();
-  if (!token) fail("\nNo GitHub login found. Run `gh auth login`, then run this again.");
-  const t = new GitHubTracker(found.owner, found.repo, token);
-  const s = await t.snapshot();
-  console.log(`\n${found.owner}/${found.repo}: ${s.milestones.length ? `${s.milestones.length} milestone(s) found, the plan is live.` : "no plan yet. Ask your agent to make one."}`);
-  console.log(`Dashboard: ${VIEWER}#/${found.owner}/${found.repo}`);
-  if (values.yes || (await ask("\nAdd a progress card to the README, as a pull request?"))) {
-    const url = await proposeRepoFiles(t, s.private, { readme: true, workflow: true, pointer: !!values["agents-md"] });
-    console.log(url ? `✓ ${url}` : "✓ The README already has it.");
+
+  let dashboard: string | null = null;
+  if (s.private) {
+    console.log("· Private repo: no public dashboard. Run `gam dashboard` for a local one, or `gam site <folder>` to host it where only you can reach it.");
+  } else {
+    const pages = await setUpPages(t);
+    if ("url" in pages) dashboard = pages.url;
+    else console.log(`· No dashboard on GitHub Pages: ${pages.reason}. Run \`gam site <folder>\` and host it on your own domain, then put \`dashboard: <url>\` in .github/gam.yml.`);
   }
+
+  const pr = await proposeRepoFiles(t, s, dashboard, { readme: true, workflow: true, agents: true });
+  if (pr) {
+    console.log(`✓ ${pr.url}`);
+    console.log(`  ${pr.changed.join(", ")}`);
+    console.log("  Merge it and pull. Codex reads .codex/config.toml once you trust the project in Codex.");
+  } else {
+    console.log("✓ The repo is already connected.");
+  }
+  if (dashboard) console.log(`\nDashboard: ${dashboard} (live once the pull request is merged)`);
+}
+
+async function site(dir: string, repos: string[]): Promise<void> {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "index.html"), siteHtml(__VIEWER_HTML__, repos));
+  writeFileSync(join(dir, ".nojekyll"), "");
+  console.log(`${join(dir, "index.html")}: a dashboard for ${repos.join(", ")}. Host the folder on any static host. Private repos ask the viewer for a read-only token.`);
 }
 
 function openFile(path: string): void {
@@ -102,6 +129,7 @@ async function main(): Promise<void> {
       repo: { type: "string" },
       json: { type: "boolean" },
       out: { type: "string" },
+      repos: { type: "string" },
       new: { type: "string" },
       takeover: { type: "boolean" },
       role: { type: "string" },
@@ -123,6 +151,17 @@ async function main(): Promise<void> {
   if (command === "hook") return runHook(rest[0]);
   if (!command || command === "connect") return connect(values);
 
+  if (command === "site") {
+    if (!rest[0]) fail("gam site needs a folder to write to.");
+    const repos = values.repos ? values.repos.split(",").map((r) => r.trim()).filter(Boolean) : [];
+    if (!repos.length) {
+      const found = values.repo ? parseSlug(values.repo) : detectRepo();
+      if (!found) fail("Run this inside a GitHub repo's folder, or pass --repos owner/name,...");
+      repos.push(`${found.owner}/${found.repo}`);
+    }
+    if (repos.some((r) => !parseSlug(r))) fail("--repos takes owner/name pairs, separated by commas.");
+    return site(rest[0], repos);
+  }
   const t = tracker(values.repo);
   if (command === "dashboard") return dashboard(t, values.out);
   const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", role: process.env.GAM_ROLE, currentBranch: currentBranch() };

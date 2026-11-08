@@ -6,15 +6,38 @@ on:
     types: [created, edited, closed, opened, deleted]
   pull_request:
     types: [opened, edited, reopened, closed, synchronize]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 permissions:
   contents: write
   issues: read
   pull-requests: read
 concurrency:
-  group: gam-${{ github.event.pull_request.number || 'status' }}
+  group: gam-${{ github.event.pull_request.number || github.event_name }}
   cancel-in-progress: true
 jobs:
   plan:
+    if: github.event_name != 'push' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: CocoRoF/git-agent-manager@v0
+  dashboard:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: CocoRoF/git-agent-manager@v0
+        with:
+          site: _site
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

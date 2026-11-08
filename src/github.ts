@@ -236,6 +236,11 @@ export class GitHubTracker implements Tracker {
     if (status >= 400) await this.call("POST", `${this.base}/git/refs`, { ref: "refs/gam/status", sha: commit.sha });
   }
 
+  async canWrite(): Promise<boolean> {
+    const repo = await this.call("GET", this.base);
+    return !!(repo.permissions?.push || repo.permissions?.admin);
+  }
+
   async readConfig(): Promise<Config> {
     return parseConfig((await this.readFile(".github/gam.yml"))?.text ?? "");
   }
@@ -247,8 +252,28 @@ export class GitHubTracker implements Tracker {
     return (json.files ?? []).map((f: Json) => String(f.filename));
   }
 
-  async readFile(path: string): Promise<{ text: string; sha: string } | null> {
-    const { status, json } = await this.request("GET", `${this.base}/contents/${path}`);
+  async getPages(): Promise<{ url: string; buildType: string } | null> {
+    const { status, json } = await this.request("GET", `${this.base}/pages`);
+    if (status === 404) return null;
+    if (status >= 400) throw new GitHubError(status, `GitHub pages: ${json?.message ?? status}`);
+    return { url: json.html_url, buildType: json.build_type ?? "legacy" };
+  }
+
+  /** Turns on Pages deployed by Actions. Returns the site's URL, or null if GitHub refuses. */
+  async enablePages(): Promise<string | null> {
+    const { status, json } = await this.request("POST", `${this.base}/pages`, { build_type: "workflow" });
+    return status < 400 ? json.html_url : null;
+  }
+
+  async listWorkflows(): Promise<{ path: string; text: string }[]> {
+    const { status, json } = await this.request("GET", `${this.base}/contents/.github/workflows`);
+    if (status >= 400 || !Array.isArray(json)) return [];
+    const files = json.filter((f: Json) => /\.ya?ml$/.test(f.name));
+    return Promise.all(files.map(async (f: Json) => ({ path: f.path, text: (await this.readFile(f.path))?.text ?? "" })));
+  }
+
+  async readFile(path: string, ref?: string): Promise<{ text: string; sha: string } | null> {
+    const { status, json } = await this.request("GET", `${this.base}/contents/${path}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
     if (status === 404) return null;
     if (status >= 400) throw new GitHubError(status, `GitHub read ${path}: ${json?.message ?? status}`);
     return { text: Buffer.from(json.content, "base64").toString("utf8"), sha: json.sha };

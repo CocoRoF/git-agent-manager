@@ -1,6 +1,6 @@
 # Plan adherence benchmark
 
-Does connecting git-agent-manager actually change what agents do? No published data covers this, so we measured it. Measured 2026-11-07.
+Does connecting git-agent-manager actually change what agents do? No published data covers this, so we measured it. Measured 2026-11-07. The repo pointer was reworded after the run to add the line about small jobs.
 
 ## Method
 
@@ -24,8 +24,8 @@ Runs that followed the plan, out of runs:
 | Claude Code, MCP | 6/6 | 2/2 |
 | Claude Code, MCP and hooks | 6/6 | 2/2 |
 | Codex, MCP only | 0/6 | 2/2 |
-| Codex, MCP and global instructions (what `connect` sets up) | 6/6 | 2/2 |
-| Codex, MCP and `AGENTS.md` in the repo | 6/6 | 0/2 |
+| Codex, MCP and global instructions | 6/6 | 2/2 |
+| Codex, MCP and `AGENTS.md` in the repo (what `connect` sets up) | 6/6 | 0/2 |
 
 Finishing the milestone, where agents may merge (`merge: agent`):
 
@@ -39,8 +39,8 @@ Finishing the milestone, where agents may merge (`merge: agent`):
 ## What we learned
 
 - **Claude Code follows from MCP alone.** It reads the server's instructions.
-- **Codex needs an instructions file.** With MCP alone it looked for `AGENTS.md`, found none, and committed straight to `main` in 5 of 6 runs. One short block in its global file took that to zero stray commits. That's why `connect` writes one, and the repo stays untouched.
-- **A pointer committed to a repo is too strong for a repo with no plan.** Codex recorded the typo as a task in both runs. It's harmless, but the global text, which says to carry on if there's no plan, behaved better.
+- **Codex needs an instructions file.** With MCP alone it looked for `AGENTS.md`, found none, and committed straight to `main` in 5 of 6 runs. A short pointer, either in the repo's `AGENTS.md` or in Codex's global file, took that to zero stray commits. `connect` works per repo, so it adds the pointer to the repo.
+- **A repo pointer makes agents record even plan-less work.** In a repo with the pointer and no plan, Codex recorded the typo as a task in both runs. Connected repos are meant to be planned, so that's the intended behaviour there.
 - **The hooks made no measurable difference here.** These jobs were short, and agents were already following. The hooks may matter more in long sessions, which this doesn't test.
 - **Merging is what stops long runs.** Before agents had a way to merge, Claude Code's milestone run stopped at its first PR, because the next task depended on it. That's why `merge: agent` exists. Even with it, one Claude Code run stopped at two open PRs, saying that merging went beyond being asked to commit and push.
 

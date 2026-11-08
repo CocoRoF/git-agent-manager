@@ -190,5 +190,6 @@ export function agendaMilestones(milestones: Milestone[], agenda: number): Miles
 export function parseConfig(text: string): Config {
   const approval = /^approval:\s*["']?(\w+)/m.exec(text)?.[1];
   const merge = /^merge:\s*["']?(\w+)/m.exec(text)?.[1];
-  return { approval: approval === "required" ? "required" : "auto", merge: merge === "agent" ? "agent" : "human" };
+  const dashboard = /^dashboard:\s*["']?(https:\/\/[^\s"']+)/m.exec(text)?.[1] ?? null;
+  return { approval: approval === "required" ? "required" : "auto", merge: merge === "agent" ? "agent" : "human", dashboard };
 }

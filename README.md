@@ -1,7 +1,7 @@
 # git-agent-manager
 
 <!-- gam:start -->
-[![Plan progress](https://raw.githubusercontent.com/CocoRoF/git-agent-manager/refs/gam/status/status.svg)](https://cocorof.github.io/git-agent-manager/#/CocoRoF/git-agent-manager)
+[![Plan progress](https://raw.githubusercontent.com/CocoRoF/git-agent-manager/refs/gam/status/status.svg)](https://cocorof.github.io/git-agent-manager/)
 <!-- gam:end -->
 
 Connect once, and any coding agent working in your repo follows a milestone plan, while progress shows up on a live dashboard.
@@ -17,18 +17,17 @@ Nothing new to learn, and nothing extra in your repo:
 
 ## Quick start
 
-In a GitHub repo, with Node 20 or later:
+Inside a GitHub repo's folder, with Node 20 or later:
 
 ```bash
-npx github:CocoRoF/git-agent-manager
+npx git-agent-manager
 ```
 
-That's the whole setup. It:
+It works on one repo at a time, and refuses to run outside one. It:
 
-1. Connects Claude Code, Codex, Cursor and Gemini if you have them. This is per machine, so it then works in every repo.
-2. Uses the GitHub login you already have (`GITHUB_TOKEN`, `gh`, or git credentials).
-3. Adds a short block to Codex's and Gemini's own global instruction files, and two small hooks to Claude Code. Your repo isn't touched, and your own text in those files stays.
-4. Offers a pull request that adds the progress card to your README and a small workflow that keeps it current. You can say no.
+1. Uses the GitHub login you already have (`GITHUB_TOKEN`, `gh`, or git credentials) and checks you can write to the repo.
+2. Connects Claude Code in this folder right away.
+3. Opens one pull request that connects every agent working in the repo: `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, and a short pointer in `AGENTS.md` that Codex, Cursor and others read. It also adds a progress card to the README, and a workflow that serves the dashboard from the repo's own GitHub Pages.
 
 Then just ask your agent for what you want:
 
@@ -57,10 +56,12 @@ Every result ends with a `next:` line. That's how agents stay on track without l
 
 ![The dashboard for this repo: overall progress, milestones, and a task board](docs/images/dashboard.png)
 
-Open any repo at `https://cocorof.github.io/git-agent-manager/#/owner/repo`. [Here's this one](https://cocorof.github.io/git-agent-manager/#/CocoRoF/git-agent-manager).
+Each repo's dashboard is its own. It's served from the repo's GitHub Pages, at `https://<owner>.github.io/<repo>/`, or from your own domain if you've set one in the repo's Pages settings. [This repo's dashboard](https://cocorof.github.io/git-agent-manager/) is an example.
 
-- It's one static page that reads straight from the GitHub API. Nothing is hosted per repo, and it doesn't touch your repo's Pages.
-- Viewing rights are GitHub's. Public repos open without logging in. For private ones, paste a read-only token (it stays in your browser), or run `gam dashboard` to get a local HTML file.
+- The page shows only the repo it was made for. It reads the plan live from the GitHub API, so it's redeployed only when the tool updates.
+- If the repo already uses GitHub Pages for something else, connect leaves it alone. Build the dashboard with `gam site <folder>`, host it anywhere, and put `dashboard: <url>` in `.github/gam.yml` so links point there.
+- `gam site <folder> --repos you/a,you/b` makes one page for several repos, to host on your own domain.
+- Private repos get no public dashboard. Run `gam dashboard` for a local HTML file, or host `gam site` output where only you can reach it. That page asks for a read-only token, which stays in the browser.
 - It shows commits that went around the plan, unplanned work, and whether each finished task was proven by a merged PR.
 
 The README card lives on a hidden ref (`refs/gam/status`), so it doesn't appear in your branch list, clones, or commit history. Private repos get a link instead, because an anonymous image request can't read them.
@@ -85,7 +86,7 @@ We ran fixed jobs on a small scratch repo and scored the result from GitHub, not
 |---|---|
 | Claude Code | 12 of 12 runs |
 | Codex | 6 of 6 runs |
-| Codex with MCP alone, no instructions file | 0 of 6 runs |
+| Codex with MCP alone, no `AGENTS.md` | 0 of 6 runs |
 
 These are short jobs on a tiny repo, a few runs each. Long sessions in big repos aren't measured yet. [Details and method](docs/BENCHMARK.md).
 
@@ -94,8 +95,9 @@ These are short jobs on a tiny repo, a few runs each. Long sessions in big repos
 All optional, in `.github/gam.yml`:
 
 ```yaml
-approval: required  # new tasks from agents wait until a person removes the "proposed" label
-merge: agent        # gam_finish may merge a PR once its checks pass
+approval: required                      # new tasks from agents wait until a person removes the "proposed" label
+merge: agent                            # gam_finish may merge a PR once its checks pass
+dashboard: https://plan.example.com/    # where links to the dashboard point
 ```
 
 ## Agendas
@@ -115,14 +117,14 @@ On a public repo, anyone can open an issue, so an issue is a way to try to steer
 - **Only tasks in a milestone count**, and setting a milestone needs triage access.
 - **Issues and comments from people without write access are never handed over as work.** Their comments are left out and only counted.
 - **Issue text is marked as data** in everything agents receive.
-- **The dashboard builds its page from text nodes** under a strict Content Security Policy, and only ever calls `api.github.com`.
+- **The dashboard builds its page from text nodes** under a strict Content Security Policy, only ever calls `api.github.com`, and only shows the repos it was built for.
 - **Plans on public repos are public.** Keep secrets out of issues.
 
 ## Limits
 
 - GitHub only for now. The core sits behind one interface, and GitLab and Gitea have the same concepts.
 - Only people and agents with write access can claim tasks.
-- Cursor has no global instructions file, so it relies on MCP alone. Use `--agents-md` to add a pointer to the repo. Cursor and Gemini haven't been through the benchmark.
+- Cursor and Gemini haven't been through the benchmark.
 - Agents using the same GitHub account all appear as you. Each signs its progress comment with its own name, and `GAM_AGENT` sets that name.
 
 ## Develop
@@ -134,7 +136,7 @@ npm run build
 GAM_E2E=1 GAM_E2E_REPO=you/scratch-repo npm run test:e2e   # wipes that repo's plan
 ```
 
-`dist/` is committed, because `npx github:…` and the Action both run from it. The design is in [docs/PLAN.md](docs/PLAN.md) (Korean).
+`dist/` is committed, because the Action runs from it. The design is in [docs/PLAN.md](docs/PLAN.md) (Korean).
 
 ## License
 

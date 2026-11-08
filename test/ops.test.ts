@@ -27,9 +27,13 @@ describe("status", () => {
     assert.match(r.next!, /carry on/);
   });
 
-  it("points at the first ready task and the dashboard", async () => {
-    const r = await status(ctx(await planned()));
-    assert.match(r.text, /cocorof\.github\.io\/git-agent-manager\/#\/o\/r/);
+  it("points at the first ready task and the repo's own dashboard", async () => {
+    const t = await planned();
+    assert.match((await status(ctx(t))).text, /dashboard: run `gam dashboard`/);
+    t.config = { ...t.config, dashboard: "https://plan.example.com/" };
+    const r = await status(ctx(t));
+    assert.match(r.text, /dashboard: https:\/\/plan\.example\.com\//);
+    assert.doesNotMatch(r.text, /cocorof/);
     assert.match(r.next!, /#1 first/);
   });
 });
@@ -263,7 +267,7 @@ describe("agendas", () => {
 describe("teams", () => {
   it("holds an agent's tasks for approval when the repo requires it", async () => {
     const t = new FakeTracker();
-    t.config = { approval: "required", merge: "human" };
+    t.config = { approval: "required", merge: "human", dashboard: null };
     await plan(ctx(t), { proposed: false, milestones: [{ title: "M", tasks: [{ title: "x" }] }] });
     assert.ok(t.issues[0]!.labels.includes("proposed"));
     await rejects(claim(ctx(t), {}), /Nothing/);
@@ -297,7 +301,7 @@ describe("merging", () => {
   const T0 = Date.parse("2026-01-01T00:00:00Z");
   async function submitted(merge: "human" | "agent") {
     const t = new FakeTracker();
-    t.config = { approval: "auto", merge };
+    t.config = { approval: "auto", merge, dashboard: null };
     t.clock = () => new Date(T0);
     await plan(ctx(t), { milestones: [{ title: "M", tasks: [{ title: "a" }] }] });
     await claim(ctx(t), { issue: 1 });
