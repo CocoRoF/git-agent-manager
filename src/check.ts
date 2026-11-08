@@ -1,4 +1,4 @@
-import { closingIssues, branchIssue, currentMilestone, parseCriteria, deriveTask } from "./derive.ts";
+import { CONNECT_BRANCH, closingIssues, branchIssue, currentMilestone, parseCriteria, deriveTask } from "./derive.ts";
 import type { Issue, Snapshot } from "./model.ts";
 
 export interface PullEvent {
@@ -18,7 +18,7 @@ export interface Finding {
 export function checkPull(s: Snapshot, pull: PullEvent, issue: Issue | null): Finding[] {
   const self = `${s.owner}/${s.repo}`.toLowerCase();
   // Plans bind the team's agents. Forks and bots have no way to claim a task.
-  if (pull.authorType === "Bot" || pull.headRepo?.toLowerCase() !== self) return [];
+  if (pull.authorType === "Bot" || pull.headRepo?.toLowerCase() !== self || pull.headRef === CONNECT_BRANCH) return [];
   if (s.milestones.length === 0) return [];
 
   if (!issue) {

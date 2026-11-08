@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { CONNECT_BRANCH } from "./derive.ts";
 import type { GitHubTracker } from "./github.ts";
 
 export const START = "<!-- gam:start -->";
@@ -143,7 +144,7 @@ export async function proposeRepoFiles(
   dashboard: string | null,
   files: RepoFiles,
 ): Promise<{ url: string; changed: string[]; open?: boolean } | null> {
-  const branch = "git-agent-manager/connect";
+  const branch = CONNECT_BRANCH;
   // An earlier run's pull request is still waiting. Leave it as it is.
   const waiting = await t.openPullFrom(branch);
   if (waiting) return { url: waiting.url, changed: [], open: true };

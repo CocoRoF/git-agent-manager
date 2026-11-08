@@ -32,6 +32,7 @@ it("leaves repos without a plan, forks and bots alone", async () => {
   const t = await repo();
   assert.deepEqual(checkPull(await t.snapshot(), pull({ headRepo: "stranger/r" }), null), []);
   assert.deepEqual(checkPull(await t.snapshot(), pull({ authorType: "Bot" }), null), []);
+  assert.deepEqual(checkPull(await t.snapshot(), pull({ headRef: "git-agent-manager/connect" }), null), []);
 });
 
 it("passes a clean task and flags what isn't", async () => {

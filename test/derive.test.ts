@@ -37,7 +37,7 @@ it("flags commits no task accounts for", () => {
   const c = (sha: string, message: string, bot = false): CommitRef => ({ sha, message, url: "", author: "a", bot });
   const p = (number: number, headRef: string, body = ""): Pull => ({ number, title: "", body, headRef, headRepo: "o/r", state: "closed", mergedAt: "x", draft: false, url: "", createdAt: "" });
   const s = {
-    pulls: [p(1, "task/5-x"), p(2, "feature", "Closes #6"), p(3, "feature-b")],
+    pulls: [p(1, "task/5-x"), p(2, "feature", "Closes #6"), p(3, "feature-b"), p(4, "git-agent-manager/connect")],
     commits: [
       c("a", "Add thing (#1)"),
       c("b", "Merge pull request #2 from o/feature"),
@@ -46,10 +46,11 @@ it("flags commits no task accounts for", () => {
       c("e", "Fix it\n\nCloses #7"),
       c("f", "Bump dep", true),
       c("g", "Old work (#99)"),
+      c("h", "Connect git-agent-manager (#4)"),
     ],
   } as unknown as Snapshot;
   const a = auditCommits(s);
-  assert.equal(a.checked, 6);
+  assert.equal(a.checked, 7);
   assert.deepEqual(a.offPlan.map((x) => x.sha), ["c", "d"]);
 });
 
