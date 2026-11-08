@@ -93,6 +93,7 @@ export async function loadSnapshot(
     agendas: agendas.filter((i: Json) => !i.pull_request).map(toIssue),
     commits: commits.map((c: Json) => ({
       sha: c.sha,
+      parents: (c.parents ?? []).map((p: Json) => String(p.sha)),
       message: c.commit?.message ?? "",
       url: c.html_url,
       author: c.author?.login ?? c.commit?.author?.name ?? "unknown",
