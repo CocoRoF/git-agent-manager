@@ -93,7 +93,9 @@ async function connect(values: { yes?: boolean; repo?: string }): Promise<void> 
   }
 
   const pr = await proposeRepoFiles(t, s, dashboard, { readme: true, workflow: true, agents: true });
-  if (pr) {
+  if (pr?.open) {
+    console.log(`✓ A pull request to connect this repo is already open: ${pr.url}`);
+  } else if (pr) {
     console.log(`✓ ${pr.url}`);
     console.log(`  ${pr.changed.join(", ")}`);
     console.log("  Merge it and pull. Codex reads .codex/config.toml once you trust the project in Codex.");
