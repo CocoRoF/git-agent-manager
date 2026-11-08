@@ -110,6 +110,14 @@ gam agenda "Analyze three competitors and propose next quarter's pricing"
 
 The next agent to check status breaks it into milestones and tasks. With roles (`role:*` labels and the `GAM_ROLE` variable), a team of agents picks up the work meant for each of them, and they're warned when their branches touch the same files. The agenda closes itself when its milestones do.
 
+## Running it inside your own platform
+
+Platforms that run agents for others, and decide for themselves who may do what, can call the CLI with `--repo owner/name --json` and a token in `GITHUB_TOKEN`. Every result and every failure comes back as one JSON object.
+
+- `GAM_AGENT` names the agent, and `GAM_ROLE` steers it to `role:*` tasks.
+- `gam approve <issue>...` puts proposed tasks into play, for whoever your platform lets approve.
+- `GAM_ALLOW_MERGE=1` lets `gam finish --merge` merge for that call, whatever `.github/gam.yml` says. Set it only for agents your platform allows to merge.
+
 ## Security
 
 On a public repo, anyone can open an issue, so an issue is a way to try to steer your agent.

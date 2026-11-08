@@ -352,3 +352,25 @@ describe("merging", () => {
     assert.equal(t.issues[0]!.state, "open");
   });
 });
+
+describe("runtime controls", () => {
+  it("approves proposed tasks so they can be claimed", async () => {
+    const t = new FakeTracker();
+    await plan(ctx(t), { proposed: true, milestones: [{ title: "M", tasks: [{ title: "a" }, { title: "b" }] }] });
+    await rejects(claim(ctx(t), {}), /Nothing/);
+    const r = await plan(ctx(t), { approve: [2, 1, 2] });
+    assert.match(r.text, /approved #2 b/);
+    assert.match(r.text, /#2 wasn't waiting/);
+    assert.equal(((await claim(ctx(t), {})).data as { issue: number }).issue, 1);
+  });
+
+  it("lets a trusted runtime allow a merge the repo settings don't", async () => {
+    const t = new FakeTracker();
+    await plan(ctx(t), { milestones: [{ title: "M", tasks: [{ title: "a" }] }] });
+    await claim(ctx(t), { issue: 1 });
+    t.branches.set("task/1-a", { ahead: 1, lastCommitAt: null });
+    t.checks = { pending: [], failed: [], total: 1 };
+    assert.match((await finish(ctx(t), { issue: 1, evidence: "x", merge: true })).text, /doesn't let agents merge/);
+    assert.match((await finish({ ...ctx(t), allowMerge: true }, { issue: 1, evidence: "x", merge: true })).text, /Merged/);
+  });
+});

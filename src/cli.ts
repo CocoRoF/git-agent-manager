@@ -23,6 +23,7 @@ const HELP = `git-agent-manager ${VERSION}
 
   gam status                                    where the plan stands
   gam agenda <text>                             hand agents a goal to plan and carry out
+  gam approve <issue>...                        put proposed tasks into play
   gam plan <file.json | ->                      create or extend the plan
   gam claim [issue] [--new title] [--takeover]  take a task
   gam update [issue] <note> [--unblock]         add a line of progress
@@ -36,10 +37,12 @@ const HELP = `git-agent-manager ${VERSION}
   --agents-md         connect: also add an AGENTS.md pointer, for teammates and cloud agents
   --json              print machine-readable output
   GAM_AGENT           the name this agent signs its work with
-  GAM_ROLE            prefer tasks with this role:* label`;
+  GAM_ROLE            prefer tasks with this role:* label
+  GAM_ALLOW_MERGE=1   let this agent merge, for runtimes that decide who may (overrides merge: in .github/gam.yml)`;
 
 function fail(message: string): never {
-  console.error(message);
+  if (process.argv.includes("--json")) console.log(JSON.stringify({ ok: false, text: message }));
+  else console.error(message);
   process.exit(1);
 }
 
@@ -166,13 +169,16 @@ async function main(): Promise<void> {
   }
   const t = tracker(values.repo);
   if (command === "dashboard") return dashboard(t, values.out);
-  const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", role: process.env.GAM_ROLE, currentBranch: currentBranch() };
+  const ctx: Ctx = { tracker: t, agent: process.env.GAM_AGENT || "cli", role: process.env.GAM_ROLE, allowMerge: process.env.GAM_ALLOW_MERGE === "1", currentBranch: currentBranch() };
   const number = /^\d+$/.test(rest[0] ?? "") ? Number(rest.shift()) : undefined;
   let result: Result;
 
   switch (command) {
     case "status":
       result = await status(ctx);
+      break;
+    case "approve":
+      result = await plan(ctx, { approve: [number, ...rest.map(Number)].filter((n): n is number => n !== undefined && Number.isInteger(n) && n > 0) });
       break;
     case "agenda":
       result = await agenda(ctx, { text: rest.join(" ") });
@@ -204,10 +210,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  if (e instanceof OpError) {
-    console.error(format({ ok: false, text: e.message, next: e.next }));
-  } else {
-    console.error(`Failed: ${(e as Error).message}`);
-  }
+  const failure = e instanceof OpError ? { ok: false, text: e.message, next: e.next } : { ok: false, text: `Failed: ${(e as Error).message}` };
+  // Callers that asked for JSON get JSON for failures too, so they never have to parse prose.
+  if (process.argv.includes("--json")) console.log(JSON.stringify(failure));
+  else console.error(format(failure));
   process.exit(1);
 });
