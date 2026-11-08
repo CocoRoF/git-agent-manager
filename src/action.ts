@@ -57,6 +57,12 @@ async function main(): Promise<void> {
     writeFileSync(join(site, ".nojekyll"), "");
   }
 
+  if (site) {
+    // The site is written, so the deploy can go ahead even if the image can't be refreshed.
+    await refreshStatus(t).catch((e: Error) => console.log(`::warning::git-agent-manager: status image: ${escapeData(e.message)}`));
+    return;
+  }
+
   if (process.env.GITHUB_EVENT_NAME?.startsWith("pull_request")) {
     await checkPullEvent(t, event, input("mode") === "strict");
     // A fork's token is read-only, so only a merge into this repo refreshes the image.
