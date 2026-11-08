@@ -1,6 +1,6 @@
 {
   "name": "git-agent-manager",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Connect once, and any coding agent in your repo follows a milestone plan, with a live progress dashboard. Built on plain GitHub Milestones and Issues.",
   "keywords": [
     "ai-agents",

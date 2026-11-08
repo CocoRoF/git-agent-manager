@@ -40,6 +40,8 @@ export interface Ctx {
   agent: string;
   /** Which tasks this agent should prefer, in a team with role labels. */
   role?: string;
+  /** Set by a runtime that decides who may merge itself, such as an office where only leads merge. */
+  allowMerge?: boolean;
   /** The checked-out branch, the best hint for which task "this one" means. */
   currentBranch?: string | null;
   now?: () => Date;
@@ -280,6 +282,8 @@ export interface PlanInput {
   /** Mark new tasks as waiting for a person's approval. */
   proposed?: boolean;
   closeMilestones?: { number: number; evidence: string }[];
+  /** Proposed tasks to put into play, by issue number. */
+  approve?: number[];
 }
 
 function taskBody(t: PlanTask): string {
@@ -317,6 +321,16 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
   if (input.agenda) {
     const a = await ctx.tracker.getIssue(input.agenda);
     if (!a.labels.includes(LABEL_AGENDA) || !a.trusted) throw new OpError(`#${input.agenda} isn't an agenda from someone with write access.`);
+  }
+
+  for (const n of input.approve ?? []) {
+    const issue = await ctx.tracker.getIssue(n);
+    if (!issue.labels.includes(LABEL_PROPOSED)) {
+      lines.push(`#${n} wasn't waiting for approval`);
+      continue;
+    }
+    await ctx.tracker.removeLabel(n, LABEL_PROPOSED);
+    lines.push(`approved #${n} ${issue.title}`);
   }
 
   for (const { number, evidence } of input.closeMilestones ?? []) {
@@ -383,7 +397,7 @@ export async function plan(ctx: Ctx, input: PlanInput): Promise<Result> {
   return {
     ok: true,
     text: lines.length ? lines.join("\n") : "Nothing changed: the plan already matches.",
-    next: proposed ? "ask the user to approve the plan: they remove the proposed label from the tasks they accept." : "call gam_claim to start the first task.",
+    next: proposed ? "ask the user to approve the plan: they remove the proposed label from the tasks they accept." : input.milestones?.length || input.approve?.length ? "call gam_claim to start the first task." : "call gam_status to see where the plan stands.",
     data: { created: Object.fromEntries(created) },
   };
 }
@@ -554,7 +568,7 @@ const CHECKS_START_MS = 60_000;
 async function tryMerge(ctx: Ctx, n: number, pull: Pull, branch: string): Promise<Result> {
   const hold = (text: string, next: string): Result => ({ ok: true, text: `${pull.url} is open for #${n}. ${text}`, next, data: { pull: pull.number } });
   const config = await ctx.tracker.readConfig();
-  if (config.merge !== "agent") {
+  if (config.merge !== "agent" && !ctx.allowMerge) {
     return hold("This repo doesn't let agents merge.", "a person merges it. To allow agents, the repo owner sets merge: agent in .github/gam.yml.");
   }
   const { pending, failed, total } = await ctx.tracker.branchChecks(branch);
