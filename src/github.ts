@@ -232,8 +232,15 @@ export class GitHubTracker implements Tracker {
     const blob = await this.call("POST", `${this.base}/git/blobs`, { content: svg, encoding: "utf-8" });
     const tree = await this.call("POST", `${this.base}/git/trees`, { tree: [{ path: "status.svg", mode: "100644", type: "blob", sha: blob.sha }] });
     const commit = await this.call("POST", `${this.base}/git/commits`, { message: "Update status", tree: tree.sha, parents: [] });
-    const { status } = await this.request("PATCH", `${this.base}/git/refs/gam/status`, { sha: commit.sha, force: true });
-    if (status >= 400) await this.call("POST", `${this.base}/git/refs`, { ref: "refs/gam/status", sha: commit.sha });
+    // Two workflow runs can update the image at once, so a failed update is tried again.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const updated = await this.request("PATCH", `${this.base}/git/refs/gam/status`, { sha: commit.sha, force: true });
+      if (updated.status < 400) return;
+      const created = await this.request("POST", `${this.base}/git/refs`, { ref: "refs/gam/status", sha: commit.sha });
+      if (created.status < 400) return;
+      if (attempt === 2) throw new GitHubError(updated.status, `GitHub status image: ${updated.json?.message ?? updated.status}, then ${created.json?.message ?? created.status}`);
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    }
   }
 
   async canWrite(): Promise<boolean> {
