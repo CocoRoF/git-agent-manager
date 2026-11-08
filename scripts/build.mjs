@@ -33,6 +33,7 @@ const html = `<!doctype html>
 </head>
 <body>
 <main id="app"></main>
+<!--gam:config-->
 <!--gam:snapshot-->
 <script>${js}</script>
 </body>
@@ -62,5 +63,6 @@ await build({
   platform: "node",
   target: "node20",
   format: "esm",
+  define: { __VIEWER_HTML__: JSON.stringify(html) },
   legalComments: "none",
 });

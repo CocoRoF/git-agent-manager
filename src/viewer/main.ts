@@ -3,7 +3,6 @@ import type { Milestone, Snapshot, Task, TaskState } from "../model.ts";
 import { ViewerError, fetchSnapshot, fetchSummary, getToken, setToken } from "./api.ts";
 import { t } from "./i18n.ts";
 
-const RECENT_KEY = "gam.repos";
 const COLUMNS: TaskState[] = ["proposed", "blocked", "ready", "in_progress", "in_review", "done"];
 const COLUMN_LIMIT = 8;
 const SOURCE = "https://github.com/CocoRoF/git-agent-manager";
@@ -136,11 +135,12 @@ function agendaList(s: Snapshot): HTMLElement | null {
 }
 
 function topBar(repo: string | null, extra: Child[] = []): HTMLElement {
+  const portfolio = !SNAPSHOT && REPOS.length > 1;
   return h(
     "div",
     { class: "top" },
-    SNAPSHOT ? null : h("a", { href: "#/", class: "crumb" }, t.home),
-    repo && !SNAPSHOT ? h("span", { class: "crumb" }, "/") : null,
+    portfolio ? h("a", { href: "#/", class: "crumb" }, t.home) : null,
+    repo && portfolio ? h("span", { class: "crumb" }, "/") : null,
     repo ? link(`https://github.com/${repo}`, h("span", { class: "repo" }, repo)) : null,
     h("span", { class: "spacer" }),
     ...extra,
@@ -257,19 +257,6 @@ function renderPlan(s: Snapshot, stamp: Date, reload: () => void): void {
   );
 }
 
-function savedRepos(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function remember(slug: string): void {
-  localStorage.setItem(RECENT_KEY, JSON.stringify([slug, ...savedRepos().filter((x) => x !== slug)].slice(0, 30)));
-}
-
 function tokenSection(): HTMLElement {
   const input = h("input", { type: "password", autocomplete: "off", placeholder: "github_pat_…", "aria-label": t.tokenTitle }) as HTMLInputElement;
   input.value = getToken();
@@ -295,30 +282,13 @@ function tokenSection(): HTMLElement {
   );
 }
 
+/** Only when this dashboard was set up for several repos. */
 function renderHome(): void {
-  const input = h("input", { placeholder: t.placeholder, "aria-label": t.openRepo, autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
-  const go = () => {
-    const m = /(?:github\.com\/)?([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(input.value.trim());
-    if (m) location.hash = `#/${m[1]}`;
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") go();
-  });
-  const open = h("button", { type: "button" }, t.open);
-  open.addEventListener("click", go);
-
-  const repos = savedRepos();
   const list = h("div", { class: "repos" });
-  for (const slug of repos) {
-    const remove = h("button", { type: "button", "aria-label": `${t.remove} ${slug}` }, t.remove);
-    remove.addEventListener("click", () => {
-      localStorage.setItem(RECENT_KEY, JSON.stringify(savedRepos().filter((x) => x !== slug)));
-      renderHome();
-    });
+  for (const slug of REPOS) {
     const meta = h("span", { class: "meta" });
     const track = h("div", { class: "bar" });
-    const row = h("a", { href: `#/${slug}` }, h("div", { class: "row" }, h("span", { class: "name" }, slug), meta), track);
-    list.append(h("div", { class: "line" }, row, remove));
+    list.append(h("div", { class: "line" }, h("a", { href: `#/${slug}` }, h("div", { class: "row" }, h("span", { class: "name" }, slug), meta), track)));
     void fetchSummary(slug)
       .then((p) => {
         meta.textContent = p.total ? `${Math.round((p.done / p.total) * 100)}%${p.current ? ` · ${p.current}` : ""}` : t.noTasks;
@@ -328,23 +298,13 @@ function renderHome(): void {
         meta.textContent = "—";
       });
   }
-
   root.replaceChildren(
     h(
       "div",
       { class: "wrap" },
-      h(
-        "div",
-        { class: "home" },
-        h("h1", {}, t.title),
-        h("div", { class: "card section" }, h("h2", {}, t.openRepo), h("div", { class: "field" }, input, open)),
-        repos.length ? h("div", { class: "card section" }, h("h2", {}, t.recent), list) : null,
-        tokenSection(),
-        h("div", { class: "foot" }, link(SOURCE, "git-agent-manager")),
-      ),
+      h("div", { class: "home" }, h("h1", {}, t.title), h("div", { class: "card section" }, h("h2", {}, t.recent), list), tokenSection(), h("div", { class: "foot" }, link(SOURCE, "git-agent-manager"))),
     ),
   );
-  input.focus();
 }
 
 function renderError(slug: string, e: unknown, reload: () => void): void {
@@ -369,7 +329,6 @@ async function renderRepo(owner: string, repo: string): Promise<void> {
   if (!root.querySelector(".hero")) root.replaceChildren(h("div", { class: "wrap" }, topBar(slug), h("div", { class: "card notice" }, t.loading)));
   try {
     const s = await fetchSnapshot(owner, repo);
-    remember(slug);
     document.title = `${slug} · ${t.title}`;
     renderPlan(s, new Date(), reload);
   } catch (e) {
@@ -379,13 +338,26 @@ async function renderRepo(owner: string, repo: string): Promise<void> {
 
 function route(): void {
   tip.hidden = true;
-  const m = /^#\/([\w.-]+)\/([\w.-]+)\/?$/.exec(location.hash);
-  if (m) void renderRepo(m[1]!, m[2]!);
-  else renderHome();
+  const m = /^#\/([\w.-]+\/[\w.-]+)\/?$/.exec(location.hash);
+  // This page shows only the repos it was set up for, whatever the address says.
+  const slug = REPOS.length === 1 ? REPOS[0]! : m && REPOS.includes(m[1]!) ? m[1]! : null;
+  if (slug) {
+    const [owner, repo] = slug.split("/") as [string, string];
+    void renderRepo(owner, repo);
+  } else if (REPOS.length > 1) {
+    renderHome();
+  } else {
+    root.replaceChildren(h("div", { class: "wrap" }, h("div", { class: "card notice" }, h("div", { class: "big" }, t.notSetUp), h("div", { class: "sub" }, t.notSetUpHint))));
+  }
 }
 
-const embedded = document.getElementById("snapshot")?.textContent?.trim();
-const SNAPSHOT: { snapshot: Snapshot; at: string } | null = embedded ? JSON.parse(embedded) : null;
+function readJson(id: string): any {
+  const text = document.getElementById(id)?.textContent?.trim();
+  return text ? JSON.parse(text) : null;
+}
+
+const SNAPSHOT: { snapshot: Snapshot; at: string } | null = readJson("snapshot");
+const REPOS: string[] = (readJson("config")?.repos ?? []).filter((r: unknown) => typeof r === "string" && /^[\w.-]+\/[\w.-]+$/.test(r));
 
 if (SNAPSHOT) {
   document.title = `${SNAPSHOT.snapshot.owner}/${SNAPSHOT.snapshot.repo} · ${t.title}`;

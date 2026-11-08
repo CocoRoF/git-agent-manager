@@ -1,7 +1,12 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { checkPull, linkedIssue, type Finding, type PullEvent } from "./check.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { siteHtml } from "./dashboard.ts";
 import { GitHubTracker } from "./github.ts";
 import { refreshStatus } from "./svg.ts";
+
+declare const __VIEWER_HTML__: string;
 
 function input(name: string): string {
   return process.env[`INPUT_${name.toUpperCase()}`]?.trim() ?? "";
@@ -44,6 +49,14 @@ async function main(): Promise<void> {
   const t = new GitHubTracker(owner, repo, token);
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? "", "utf8"));
 
+  const site = input("site");
+  if (site) {
+    // The dashboard for this repo alone, to deploy to its own Pages. Plan data is read live, so this changes only with new versions.
+    mkdirSync(site, { recursive: true });
+    writeFileSync(join(site, "index.html"), siteHtml(__VIEWER_HTML__, [`${owner}/${repo}`]));
+    writeFileSync(join(site, ".nojekyll"), "");
+  }
+
   if (process.env.GITHUB_EVENT_NAME?.startsWith("pull_request")) {
     await checkPullEvent(t, event, input("mode") === "strict");
     // A fork's token is read-only, so only a merge into this repo refreshes the image.
@@ -53,6 +66,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
+  if (input("site")) {
+    console.log(`::error::git-agent-manager: ${escapeData((e as Error).message)}`);
+    process.exitCode = 1;
+    return;
+  }
   // The image and the check are conveniences. They should never be why a repo's CI goes red.
   console.log(`::warning::git-agent-manager: ${escapeData((e as Error).message)}`);
 });

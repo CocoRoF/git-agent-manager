@@ -1,8 +1,16 @@
 import type { Snapshot } from "./model.ts";
 
-/** Fills the viewer template with a plan, for a page that works from disk with no network or token. */
-export function dashboardHtml(template: string, snapshot: Snapshot, at: Date): string {
+function data(id: string, value: unknown): string {
   // Escaping < keeps issue text from closing the data block.
-  const json = JSON.stringify({ snapshot, at: at.toISOString() }).replace(/</g, "\\u003c");
-  return template.replace("<!--gam:snapshot-->", () => `<script type="application/json" id="snapshot">${json}</script>`);
+  return `<script type="application/json" id="${id}">${JSON.stringify(value).replace(/</g, "\\u003c")}</script>`;
+}
+
+/** A dashboard for the given repos, read live from GitHub. Nothing else can be opened from it. */
+export function siteHtml(template: string, repos: string[]): string {
+  return template.replace("<!--gam:config-->", () => data("config", { repos }));
+}
+
+/** A page with a plan baked in, which works from disk with no network or token. */
+export function dashboardHtml(template: string, snapshot: Snapshot, at: Date): string {
+  return siteHtml(template, [`${snapshot.owner}/${snapshot.repo}`]).replace("<!--gam:snapshot-->", () => data("snapshot", { snapshot, at: at.toISOString() }));
 }

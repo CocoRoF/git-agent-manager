@@ -72,6 +72,8 @@ export interface Config {
   approval: "auto" | "required";
   /** Who may merge. With agent, gam_finish can merge a pull request once its checks pass. */
   merge: "human" | "agent";
+  /** Where this repo's dashboard is served: its own Pages, or the owner's domain. */
+  dashboard: string | null;
 }
 
 export interface Task {

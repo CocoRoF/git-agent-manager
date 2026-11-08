@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "gam": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "git-agent-manager",
+        "mcp"
+      ]
+    }
+  }
+}

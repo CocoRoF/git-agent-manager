@@ -1,16 +1,38 @@
 {
   "name": "git-agent-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Connect once, and any coding agent in your repo follows a milestone plan, with a live progress dashboard. Built on plain GitHub Milestones and Issues.",
+  "keywords": [
+    "ai-agents",
+    "mcp",
+    "github",
+    "milestones",
+    "planning",
+    "claude-code",
+    "codex",
+    "dashboard"
+  ],
+  "homepage": "https://github.com/CocoRoF/git-agent-manager#readme",
+  "bugs": "https://github.com/CocoRoF/git-agent-manager/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CocoRoF/git-agent-manager.git"
+  },
   "license": "Apache-2.0",
-  "repository": "github:CocoRoF/git-agent-manager",
+  "author": "CocoRoF",
   "type": "module",
   "bin": {
     "git-agent-manager": "dist/cli.js",
     "gam": "dist/cli.js"
   },
-  "files": ["dist", "LICENSE", "README.md"],
-  "engines": { "node": ">=20" },
+  "files": [
+    "dist/cli.js",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc",

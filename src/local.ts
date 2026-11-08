@@ -15,6 +15,11 @@ export function detectRepo(cwd?: string): { owner: string; repo: string } | null
   return url ? parseRemote(url) : null;
 }
 
+/** The top of the working tree, or null outside a git repo. */
+export function repoRoot(cwd?: string): string | null {
+  return git(["rev-parse", "--show-toplevel"], undefined, cwd) || null;
+}
+
 export function currentBranch(cwd?: string): string | null {
   return git(["branch", "--show-current"], undefined, cwd) || null;
 }
